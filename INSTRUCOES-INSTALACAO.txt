@@ -1,0 +1,49 @@
+═══════════════════════════════════════════════════════════════
+  SISTEMA DE MANUTENÇÕES - INSTRUÇÕES DE INSTALAÇÃO
+═══════════════════════════════════════════════════════════════
+
+📋 REQUISITOS:
+  - Node.js versão 18 ou superior
+  - npm (vem com Node.js)
+  - Navegador moderno (Chrome, Firefox, Edge)
+
+🚀 INSTALAÇÃO RÁPIDA:
+
+1. Extraia este arquivo ZIP em uma pasta de sua escolha
+
+2. Abra o terminal na pasta extraída:
+   cd manutencoes-front
+
+3. Instale as dependências:
+   npm install
+
+4. Autentique-se (na raiz do projeto iap-apps):
+   cd ../..
+   ./iap auth
+   (Siga as instruções na tela)
+
+5. Volte para a pasta do frontend e execute:
+   cd apps/manutencoes/front
+   npm run dev
+
+6. Acesse no navegador:
+   http://localhost:5173
+
+═══════════════════════════════════════════════════════════════
+
+📚 DOCUMENTAÇÃO COMPLETA:
+  - Leia INSTALACAO.md para instruções detalhadas
+  - Leia README.md para informações sobre o sistema
+
+🔧 COMANDOS ÚTEIS:
+  npm run dev      - Inicia servidor de desenvolvimento
+  npm run build    - Cria build de produção
+  npm run preview  - Visualiza build de produção
+  ./iap auth       - Renova token de autenticação
+
+🐛 PROBLEMAS?
+  - Verifique se Node.js está instalado: node --version
+  - Verifique se npm está instalado: npm --version
+  - Consulte INSTALACAO.md para solução de problemas
+
+═══════════════════════════════════════════════════════════════

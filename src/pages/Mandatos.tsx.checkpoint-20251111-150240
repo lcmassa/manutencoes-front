@@ -1,0 +1,1321 @@
+import React, { useState, useEffect, useRef } from 'react'
+import { iapFetch } from '../utils/iap-requester'
+
+type Mandato = {
+  id: string
+  condominio: string
+  nomeFantasia: string
+  nomeResponsavel: string
+  cargo: string
+  dataEntrada: string
+  dataSaida: string | null
+  email: string
+  telefone: string
+  celular: string
+  status: 'ativo' | 'encerrado' | 'futuro'
+  observacoes?: string
+}
+
+export function Mandatos() {
+  const [data, setData] = useState<Mandato[]>([])
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
+  const [searchTerm, setSearchTerm] = useState<string>('')
+  const [ordenacao, setOrdenacao] = useState<'vencimento' | 'nome'>('vencimento')
+  const loadingRef = useRef(false)
+  const tokenExpiredRef = useRef(false)
+
+  useEffect(() => {
+    let isMounted = true
+    if (!tokenExpiredRef.current) {
+      carregarMandatos()
+    }
+    
+    // Listener para eventos de token expirado
+    const handleTokenExpired = (event: CustomEvent) => {
+      if (isMounted && !loadingRef.current) {
+        tokenExpiredRef.current = true
+        setErro('Token de autenticação expirado. Para renovar, execute no terminal: ./iap auth\n\nDepois, recarregue a página.')
+        setLoading(false)
+        loadingRef.current = false
+      }
+    }
+    
+    window.addEventListener('iap-token-expired', handleTokenExpired as EventListener)
+    
+    return () => {
+      isMounted = false
+      window.removeEventListener('iap-token-expired', handleTokenExpired as EventListener)
+    }
+  }, [])
+
+  const carregarMandatos = async () => {
+    // Evita múltiplas requisições simultâneas
+    if (loadingRef.current) {
+      console.log('[Mandatos] Requisição já em andamento, ignorando...')
+      return
+    }
+    
+    // Se já detectamos token expirado, não tenta novamente automaticamente
+    if (tokenExpiredRef.current) {
+      console.log('[Mandatos] Token expirado detectado anteriormente, ignorando requisição automática...')
+      return
+    }
+    
+    console.log('[Mandatos] ========== INICIANDO CARREGAMENTO DE MANDATOS ==========')
+    console.log('[Mandatos] Timestamp:', new Date().toISOString())
+    
+    loadingRef.current = true
+    setLoading(true)
+    setErro(null)
+    try {
+      const companyId = typeof window !== 'undefined' ? localStorage.getItem('x-company-id') : null
+      console.log('[Mandatos] Company ID do localStorage:', companyId)
+      
+      // Função auxiliar para fazer requisição de uma página específica
+      const fazerRequisicaoPagina = async (comStatus: string, pagina: number = 1): Promise<{ list: any[], totalPaginas?: number, totalItens?: number }> => {
+        const params = new URLSearchParams({
+          itensPorPagina: '50', // API recomenda no máximo 50 (conforme Postman)
+          pagina: String(pagina),
+        })
+        
+        // Só adiciona comStatus se não for vazio (string vazia significa buscar todos sem filtro)
+        if (comStatus && comStatus.trim() !== '') {
+          params.append('comStatus', comStatus.trim())
+        }
+        
+        const url = `/api/condominios/superlogica/sindicos?${params.toString()}`
+        const statusLabel = comStatus && comStatus.trim() !== '' ? comStatus : 'todos (sem filtro)'
+        console.log(`[Mandatos] Buscando ${statusLabel} página ${pagina} na URL:`, url)
+        
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout: A requisição demorou mais de 60 segundos.')), 60000)
+        )
+        
+        const fetchPromise = iapFetch(url, {
+          headers: companyId ? {
+            'x-company-id': companyId,
+            'company-id': companyId,
+          } : undefined,
+        })
+        
+        const res = await Promise.race([fetchPromise, timeoutPromise]) as Response
+        
+        if (!res.ok) {
+          let errorText = 'Erro desconhecido'
+          try {
+            const errorData = await res.json().catch(() => null)
+            if (errorData) {
+              errorText = typeof errorData === 'string' ? errorData : JSON.stringify(errorData)
+              // Tentar extrair mensagem de erro mais específica
+              if (errorData.detail) errorText = errorData.detail
+              else if (errorData.message) errorText = errorData.message
+              else if (errorData.error) errorText = errorData.error
+            } else {
+              errorText = await res.text().catch(() => 'Erro desconhecido')
+            }
+          } catch {
+            errorText = await res.text().catch(() => 'Erro desconhecido')
+          }
+          
+          let errorMessage = `HTTP ${res.status}: ${errorText}`
+          
+          if (res.status === 401) {
+            tokenExpiredRef.current = true
+            throw new Error(errorMessage)
+          } else if (res.status === 422) {
+            // Erro 422: log detalhado do erro mas não lançar exceção
+            // Retornar lista vazia para permitir que o código continue
+            console.error(`[Mandatos] Erro 422 detalhado:`, {
+              url,
+              status: res.status,
+              errorText,
+              headers: Object.fromEntries(res.headers.entries())
+            })
+            console.warn(`[Mandatos] Retornando lista vazia devido ao erro 422`)
+            return { list: [], totalPaginas: 0, totalItens: 0 }
+          }
+          
+          throw new Error(errorMessage)
+        }
+        
+        const responseData = await res.json().catch(() => [])
+        
+        // Log detalhado da resposta da API
+        console.log(`[Mandatos] Resposta da API (página ${pagina}, ${comStatus || 'sem filtro'}):`, {
+          tipo: Array.isArray(responseData) ? 'array' : typeof responseData,
+          keys: typeof responseData === 'object' && responseData !== null ? Object.keys(responseData) : [],
+          preview: Array.isArray(responseData) 
+            ? `Array com ${responseData.length} itens` 
+            : typeof responseData === 'object' && responseData !== null
+            ? JSON.stringify(responseData).substring(0, 200)
+            : String(responseData).substring(0, 200)
+        })
+        
+        // Log completo da estrutura da resposta para debug
+        if (typeof responseData === 'object' && responseData !== null && !Array.isArray(responseData)) {
+          console.log(`[Mandatos] Estrutura completa da resposta (página ${pagina}):`, {
+            status: responseData.status,
+            session: responseData.session,
+            msg: responseData.msg,
+            dataLength: Array.isArray(responseData.data) ? responseData.data.length : 'não é array',
+            totalPaginas: responseData.totalPaginas,
+            totalItens: responseData.totalItens,
+            total: responseData.total,
+            executiontime: responseData.executiontime,
+            todasAsChaves: Object.keys(responseData)
+          })
+        }
+        
+        // Extrair lista de dados
+        let list: any[] = []
+        let totalPaginas: number | undefined
+        let totalItens: number | undefined
+        
+        if (Array.isArray(responseData)) {
+          list = responseData
+        } else if (responseData?.data && Array.isArray(responseData.data)) {
+          list = responseData.data
+          // Tentar extrair informações de paginação
+          if (responseData.totalPaginas !== undefined) totalPaginas = responseData.totalPaginas
+          if (responseData.totalItens !== undefined) totalItens = responseData.totalItens
+          if (responseData.total !== undefined) totalItens = responseData.total
+        } else if (responseData?.sindicos && Array.isArray(responseData.sindicos)) {
+          list = responseData.sindicos
+        } else if (responseData?.result && Array.isArray(responseData.result)) {
+          list = responseData.result
+        } else if (typeof responseData === 'object' && responseData !== null) {
+          const keys = Object.keys(responseData)
+          for (const key of keys) {
+            if (Array.isArray(responseData[key])) {
+              list = responseData[key]
+              console.log(`[Mandatos] Lista encontrada na chave "${key}" com ${list.length} itens`)
+              break
+            }
+          }
+          // Tentar extrair informações de paginação
+          if (responseData.totalPaginas !== undefined) totalPaginas = responseData.totalPaginas
+          if (responseData.totalItens !== undefined) totalItens = responseData.totalItens
+          if (responseData.total !== undefined) totalItens = responseData.total
+        }
+        
+        // Log detalhado dos condomínios únicos nesta página
+        if (list.length > 0) {
+          const condominiosUnicos = new Set(list.map((item: any) => 
+            item.st_nome_cond || item.ST_NOME_COND || item.condominio || 'Sem nome'
+          ))
+          console.log(`[Mandatos] Página ${pagina}: ${list.length} itens, ${condominiosUnicos.size} condomínios únicos:`, Array.from(condominiosUnicos))
+        } else {
+          console.log(`[Mandatos] Página ${pagina}: Nenhum item retornado`)
+        }
+        
+        return { list, totalPaginas, totalItens }
+      }
+      
+      // Função para buscar todas as páginas de um status
+      const fazerRequisicaoCompleta = async (comStatus: string): Promise<any[]> => {
+        let todasPaginas: any[] = []
+        let paginaAtual = 1
+        let temMaisPaginas = true
+        let totalPaginasConhecido: number | undefined
+        let itensPorPagina = 50 // Valor usado na requisição (API recomenda máximo 50)
+        
+        while (temMaisPaginas) {
+          const resultado = await fazerRequisicaoPagina(comStatus, paginaAtual)
+          todasPaginas = todasPaginas.concat(resultado.list)
+          
+          const statusLabel = comStatus && comStatus.trim() !== '' ? comStatus : 'todos'
+          console.log(`[Mandatos] ${statusLabel} página ${paginaAtual}: ${resultado.list.length} itens`)
+          
+          // Se a API retornou informação de total de páginas, usar isso
+          if (resultado.totalPaginas !== undefined) {
+            totalPaginasConhecido = resultado.totalPaginas
+            temMaisPaginas = paginaAtual < totalPaginasConhecido
+            console.log(`[Mandatos] ${statusLabel} total de páginas conhecido: ${totalPaginasConhecido}`)
+          } else if (resultado.totalItens !== undefined) {
+            // Calcular total de páginas baseado no total de itens
+            const calculado = Math.ceil(resultado.totalItens / itensPorPagina)
+            if (totalPaginasConhecido === undefined || calculado > totalPaginasConhecido) {
+              totalPaginasConhecido = calculado
+            }
+            temMaisPaginas = totalPaginasConhecido !== undefined && paginaAtual < totalPaginasConhecido
+            console.log(`[Mandatos] ${statusLabel} total de itens: ${resultado.totalItens}, páginas calculadas: ${totalPaginasConhecido}`)
+          } else {
+            // Caso contrário, continuar enquanto houver itens na página atual
+            // IMPORTANTE: Continuar mesmo se retornou menos que itensPorPagina
+            // porque a API pode estar retornando dados de forma paginada mesmo com menos itens
+            temMaisPaginas = resultado.list.length > 0
+            
+            // Se retornou exatamente itensPorPagina, provavelmente há mais páginas
+            if (resultado.list.length === itensPorPagina) {
+              temMaisPaginas = true
+              console.log(`[Mandatos] ${statusLabel} página ${paginaAtual} retornou ${resultado.list.length} itens (máximo), continuando...`)
+            } else if (resultado.list.length > 0 && resultado.list.length < itensPorPagina) {
+              // Retornou menos que o máximo, mas ainda há itens
+              // Tentar mais uma página para ter certeza
+              console.log(`[Mandatos] ${statusLabel} página ${paginaAtual} retornou ${resultado.list.length} itens (menos que máximo), tentando próxima página...`)
+              temMaisPaginas = true
+            }
+          }
+          
+          // Limite de segurança: aumentar para 200 páginas (68 condomínios podem precisar de várias páginas)
+          if (paginaAtual >= 200) {
+            console.warn(`[Mandatos] Limite de 200 páginas atingido para ${statusLabel}`)
+            break
+          }
+          
+          // Se não retornou itens, parar
+          if (resultado.list.length === 0) {
+            console.log(`[Mandatos] ${statusLabel} página ${paginaAtual} retornou 0 itens, parando paginação`)
+            temMaisPaginas = false
+          }
+          
+          paginaAtual++
+        }
+        
+        const statusLabel = comStatus && comStatus.trim() !== '' ? comStatus : 'todos'
+        const condominiosUnicos = new Set(todasPaginas.map((item: any) => 
+          item.st_nome_cond || item.ST_NOME_COND || item.condominio || 'Sem nome'
+        ))
+        console.log(`[Mandatos] ${statusLabel} total: ${todasPaginas.length} itens de ${paginaAtual - 1} página(s)`)
+        console.log(`[Mandatos] ${statusLabel} condomínios únicos encontrados: ${condominiosUnicos.size}`)
+        if (condominiosUnicos.size > 0) {
+          console.log(`[Mandatos] ${statusLabel} lista de condomínios:`, Array.from(condominiosUnicos).slice(0, 10))
+        }
+        return todasPaginas
+      }
+      
+      // A API retorna apenas um condomínio quando não há idCondominio
+      // Solução: buscar todos os condomínios primeiro, depois buscar responsáveis legais de cada um
+      let todasListas: any[] = []
+      
+      // Primeiro, buscar lista de todos os condomínios
+      console.log('[Mandatos] ========== INICIANDO BUSCA DE CONDOMÍNIOS ==========')
+      console.log('[Mandatos] Company ID:', companyId)
+      let condominiosIds: string[] = []
+      
+      // Tentar buscar condomínios com paginação completa
+      const estrategiasCondominios = [
+        { base: '/api/condominios/superlogica/condominios/get?id=-1&somenteCondominiosAtivos=1&ignorarCondominioModelo=1&apenasColunasPrincipais=1', itensPorPagina: 50 },
+        { base: '/api/condominios/superlogica/condominios/get?id=-1&somenteCondominiosAtivos=1&ignorarCondominioModelo=1', itensPorPagina: 50 },
+        { base: '/api/condominios/superlogica/condominios/get?id=-1&somenteCondominiosAtivos=1', itensPorPagina: 50 },
+        { base: '/api/condominios/superlogica/condominios/get?id=-1', itensPorPagina: 50 },
+      ]
+      
+      let condominiosEncontrados = false
+      let todasListasCondominios: any[] = []
+      
+      for (const estrategia of estrategiasCondominios) {
+        try {
+          console.log('[Mandatos] Tentando estratégia:', estrategia.base)
+          let pagina = 1
+          let temMaisPaginas = true
+          let tentativasFalhadas = 0
+          const maxTentativasFalhadas = 3
+          const listCondominiosEstrategia: any[] = []
+          
+          while (temMaisPaginas && tentativasFalhadas < maxTentativasFalhadas) {
+            try {
+              const urlCondominios = `${estrategia.base}&itensPorPagina=${estrategia.itensPorPagina}&pagina=${pagina}`
+              console.log(`[Mandatos] Buscando página ${pagina} de condomínios...`)
+              const resCondominios = await iapFetch(urlCondominios, {
+                headers: companyId ? {
+                  'x-company-id': companyId,
+                  'company-id': companyId,
+                } : undefined,
+              })
+              
+              if (resCondominios.ok) {
+                console.log('[Mandatos] ✅ Busca de condomínios bem-sucedida')
+                condominiosEncontrados = true
+                tentativasFalhadas = 0
+                
+                // Verificar se a resposta é HTML (página de login) em vez de JSON
+                const contentType = resCondominios.headers.get('content-type') || ''
+                const responseText = await resCondominios.clone().text().catch(() => '')
+                const isHtml = contentType.includes('text/html')
+                const isLoginPage = isHtml && (
+                  responseText.includes('login') || 
+                  responseText.includes('Login') || 
+                  responseText.includes('superlogica.net/u/login') ||
+                  responseText.includes('login-hml.superlogica.net') ||
+                  (responseText.includes('email') && responseText.includes('password') && responseText.includes('form'))
+                )
+                
+                if (isLoginPage || (isHtml && responseText.length > 0)) {
+                  console.error('[Mandatos] A API retornou HTML (página de login) em vez de JSON.')
+                  throw new Error('Token de autenticação expirado ou inválido.')
+                }
+                
+                const dataCondominios = await resCondominios.json().catch((err) => {
+                  console.error('[Mandatos] Erro ao fazer parse JSON:', err)
+                  if (responseText && (responseText.includes('login') || responseText.includes('Login'))) {
+                    throw new Error('Token de autenticação expirado ou inválido.')
+                  }
+                  return []
+                })
+                
+                const listCondominios = Array.isArray(dataCondominios) ? dataCondominios : dataCondominios?.data || dataCondominios?.condominios || []
+                
+                if (listCondominios.length > 0) {
+                  listCondominiosEstrategia.push(...listCondominios)
+                  console.log(`[Mandatos] Página ${pagina}: ${listCondominios.length} condomínios, total acumulado: ${listCondominiosEstrategia.length}`)
+                  
+                  // Se retornou menos que o máximo, não há mais páginas
+                  if (listCondominios.length < estrategia.itensPorPagina) {
+                    console.log(`[Mandatos] Última página encontrada (${listCondominios.length} < ${estrategia.itensPorPagina} itens)`)
+                    temMaisPaginas = false
+                  } else {
+                    pagina++
+                  }
+                } else {
+                  console.log(`[Mandatos] Página ${pagina}: 0 itens - parando`)
+                  temMaisPaginas = false
+                }
+              } else if (resCondominios.status === 422) {
+                console.warn(`[Mandatos] Erro 422 ao buscar página ${pagina} de condomínios`)
+                tentativasFalhadas++
+                if (tentativasFalhadas >= maxTentativasFalhadas) {
+                  temMaisPaginas = false
+                } else {
+                  pagina++
+                }
+              } else {
+                console.warn(`[Mandatos] ⚠️ URL falhou com status ${resCondominios.status}, tentando próxima estratégia...`)
+                temMaisPaginas = false
+              }
+            } catch (e: any) {
+              console.warn(`[Mandatos] ⚠️ Erro ao buscar página ${pagina}:`, e.message)
+              tentativasFalhadas++
+              if (tentativasFalhadas >= maxTentativasFalhadas) {
+                temMaisPaginas = false
+              } else {
+                pagina++
+              }
+            }
+          }
+          
+          if (listCondominiosEstrategia.length > 0) {
+            todasListasCondominios = listCondominiosEstrategia
+            console.log(`[Mandatos] ✅ Estratégia bem-sucedida: ${listCondominiosEstrategia.length} condomínios encontrados`)
+            break
+          }
+        } catch (e: any) {
+          console.warn(`[Mandatos] ⚠️ Erro na estratégia:`, e.message)
+          // Continuar para próxima estratégia
+        }
+      }
+      
+      if (todasListasCondominios.length > 0) {
+        console.log('[Mandatos] Primeiro condomínio (exemplo):', {
+          id_condominio_cond: todasListasCondominios[0].id_condominio_cond,
+          ID_CONDOMINIO_COND: todasListasCondominios[0].ID_CONDOMINIO_COND,
+          id: todasListasCondominios[0].id,
+          fl_ativo_cond: todasListasCondominios[0].fl_ativo_cond,
+          FL_ATIVO_COND: todasListasCondominios[0].FL_ATIVO_COND,
+          todasChaves: Object.keys(todasListasCondominios[0])
+        })
+        
+        // Filtrar apenas condomínios ativos
+        const condominiosAtivos = todasListasCondominios.filter((c: any) => {
+          const flAtivo = c.fl_ativo_cond || c.FL_ATIVO_COND || c.fl_ativo || c.FL_ATIVO
+          if (flAtivo === undefined || flAtivo === null || flAtivo === '') return true
+          const flAtivoStr = String(flAtivo)
+          return flAtivoStr === '1' || flAtivoStr === 'true' || flAtivoStr === 'True'
+        })
+        
+        console.log(`[Mandatos] Condomínios ativos: ${todasListasCondominios.length} -> ${condominiosAtivos.length} (filtrados)`)
+        
+        condominiosIds = condominiosAtivos
+          .map((c: any) => String(c.id_condominio_cond || c.ID_CONDOMINIO_COND || c.id))
+          .filter((id: string) => id && id !== 'undefined' && id !== 'null')
+        
+        console.log(`[Mandatos] ✅ ${condominiosIds.length} IDs de condomínios extraídos`)
+        if (condominiosIds.length > 0) {
+          console.log('[Mandatos] Primeiros 10 IDs:', condominiosIds.slice(0, 10))
+        }
+      }
+      
+      // Se não encontrou condomínios com nenhuma estratégia, usar fallback
+      if (!condominiosEncontrados && condominiosIds.length === 0) {
+        console.warn('[Mandatos] ⚠️ Nenhuma estratégia de busca de condomínios funcionou, usando fallback...')
+      }
+      
+      console.log('[Mandatos] ========== RESULTADO DA BUSCA DE CONDOMÍNIOS ==========')
+      console.log('[Mandatos] Total de IDs encontrados:', condominiosIds.length)
+      
+      // Se encontrou condomínios, buscar responsáveis legais de cada um
+      if (condominiosIds.length > 0) {
+        console.log(`[Mandatos] Buscando responsáveis legais para ${condominiosIds.length} condomínios...`)
+        
+        // Buscar em lotes para não sobrecarregar a API
+        const lotes = []
+        for (let i = 0; i < condominiosIds.length; i += 10) {
+          lotes.push(condominiosIds.slice(i, i + 10))
+        }
+        
+        for (const lote of lotes) {
+          const promessas = lote.map(async (idCond: string) => {
+            try {
+              // Buscar 'atuais' e 'passado' para este condomínio
+              const resultados: any[] = []
+              
+              for (const status of ['atuais', 'passado']) {
+                try {
+                  const params = new URLSearchParams({
+                    idCondominio: idCond,
+                    comStatus: status,
+                    itensPorPagina: '50',
+                    pagina: '1',
+                  })
+                  
+                  const url = `/api/condominios/superlogica/sindicos?${params.toString()}`
+                  const res = await iapFetch(url, {
+                    headers: companyId ? {
+                      'x-company-id': companyId,
+                      'company-id': companyId,
+                    } : undefined,
+                  })
+                  
+                  if (res.ok) {
+                    // Verificar se a resposta é HTML (página de login) em vez de JSON
+                    const contentType = res.headers.get('content-type') || ''
+                    if (contentType.includes('text/html')) {
+                      console.warn(`[Mandatos] Resposta HTML (login) para condomínio ${idCond}, status ${status}. Pulando...`)
+                      return []
+                    }
+                    
+                    const responseData = await res.json().catch(() => [])
+                    let list: any[] = []
+                    
+                    if (Array.isArray(responseData)) {
+                      list = responseData
+                    } else if (responseData?.data && Array.isArray(responseData.data)) {
+                      list = responseData.data
+                    } else if (responseData?.sindicos && Array.isArray(responseData.sindicos)) {
+                      list = responseData.sindicos
+                    }
+                    
+                    resultados.push(...list)
+                  } else if (res.status === 401 || res.status === 403) {
+                    console.warn(`[Mandatos] Erro de autenticação (${res.status}) para condomínio ${idCond}, status ${status}`)
+                    // Não propagar erro para não interromper o processamento dos outros condomínios
+                  }
+                } catch (e: any) {
+                  console.warn(`[Mandatos] Erro ao buscar ${status} para condomínio ${idCond}:`, e.message)
+                }
+              }
+              
+              return resultados
+            } catch (e: any) {
+              console.warn(`[Mandatos] Erro ao buscar responsáveis legais para condomínio ${idCond}:`, e.message)
+              return []
+            }
+          })
+          
+          const resultadosLote = await Promise.all(promessas)
+          todasListas = todasListas.concat(...resultadosLote.flat())
+          
+          console.log(`[Mandatos] Lote processado: ${todasListas.length} responsáveis legais encontrados até agora`)
+        }
+        
+        console.log(`[Mandatos] Total de responsáveis legais encontrados: ${todasListas.length}`)
+      } else {
+        // Fallback: buscar sindicos com paginação completa para extrair IDs de condomínios
+        // Depois buscar sindicos de cada condomínio individualmente
+        console.log('[Mandatos] Nenhum condomínio encontrado, tentando extrair IDs dos sindicos...')
+        
+        try {
+          // Buscar sindicos com paginação completa para pegar todos os condomínios
+          const sindicosParaExtrairIds: any[] = []
+          
+          // Começar com 'atuais' que sabemos que funciona
+          console.log(`[Mandatos] Buscando sindicos com comStatus=atuais para extrair IDs de condomínios...`)
+          let pagina = 1
+          let temMaisPaginas = true
+          let tentativasFalhadas = 0
+          const maxTentativasFalhadas = 3
+          
+          while (temMaisPaginas && tentativasFalhadas < maxTentativasFalhadas) {
+            try {
+              const params = new URLSearchParams({
+                itensPorPagina: '50',
+                pagina: String(pagina),
+                comStatus: 'atuais',
+              })
+              
+              const url = `/api/condominios/superlogica/sindicos?${params.toString()}`
+              console.log(`[Mandatos] Buscando página ${pagina} de sindicos (atuais)...`)
+              const res = await iapFetch(url, {
+                headers: companyId ? {
+                  'x-company-id': companyId,
+                  'company-id': companyId,
+                } : undefined,
+              })
+              
+              if (res.ok) {
+                const responseData = await res.json().catch(() => [])
+                let list: any[] = []
+                
+                if (Array.isArray(responseData)) {
+                  list = responseData
+                } else if (responseData?.data && Array.isArray(responseData.data)) {
+                  list = responseData.data
+                } else if (responseData?.sindicos && Array.isArray(responseData.sindicos)) {
+                  list = responseData.sindicos
+                }
+                
+                if (list.length > 0) {
+                  sindicosParaExtrairIds.push(...list)
+                  console.log(`[Mandatos] Página ${pagina} (atuais): ${list.length} itens, total acumulado: ${sindicosParaExtrairIds.length}`)
+                  tentativasFalhadas = 0 // Reset contador de falhas
+                  
+                  // Extrair IDs únicos de condomínios até agora
+                  const idsUnicosAteAgora = new Set<string>()
+                  sindicosParaExtrairIds.forEach((s: any) => {
+                    const idCond = s.id_condominio_cond || s.ID_CONDOMINIO_COND || s.id_condominio_cond1 || s.ID_CONDOMINIO_COND1
+                    if (idCond) {
+                      idsUnicosAteAgora.add(String(idCond))
+                    }
+                  })
+                  console.log(`[Mandatos] IDs únicos de condomínios encontrados até agora: ${idsUnicosAteAgora.size}`)
+                  
+                  // Se retornou menos que o máximo, não há mais páginas
+                  if (list.length < 50) {
+                    console.log(`[Mandatos] Última página encontrada (${list.length} < 50 itens)`)
+                    temMaisPaginas = false
+                  } else {
+                    pagina++
+                  }
+                } else {
+                  console.log(`[Mandatos] Página ${pagina} (atuais): 0 itens - parando`)
+                  temMaisPaginas = false
+                }
+              } else if (res.status === 422) {
+                console.warn(`[Mandatos] Erro 422 ao buscar página ${pagina} (atuais)`)
+                tentativasFalhadas++
+                if (tentativasFalhadas >= maxTentativasFalhadas) {
+                  console.warn(`[Mandatos] Muitas tentativas falhadas (${tentativasFalhadas}), parando busca de páginas`)
+                  temMaisPaginas = false
+                } else {
+                  // Tentar próxima página mesmo com 422 (às vezes funciona)
+                  pagina++
+                }
+              } else {
+                console.warn(`[Mandatos] Erro ${res.status} ao buscar página ${pagina} (atuais)`)
+                tentativasFalhadas++
+                if (tentativasFalhadas >= maxTentativasFalhadas) {
+                  temMaisPaginas = false
+                } else {
+                  pagina++
+                }
+              }
+            } catch (e: any) {
+              console.warn(`[Mandatos] Erro ao buscar página ${pagina} (atuais):`, e.message)
+              tentativasFalhadas++
+              if (tentativasFalhadas >= maxTentativasFalhadas) {
+                temMaisPaginas = false
+              } else {
+                pagina++
+              }
+            }
+          }
+          
+          console.log(`[Mandatos] Total de sindicos encontrados para extrair IDs: ${sindicosParaExtrairIds.length}`)
+          
+          // Extrair IDs únicos de condomínios dos sindicos
+          const idsCondominiosUnicos = new Set<string>()
+          sindicosParaExtrairIds.forEach((s: any) => {
+            const idCond = s.id_condominio_cond || s.ID_CONDOMINIO_COND || s.id_condominio_cond1 || s.ID_CONDOMINIO_COND1
+            if (idCond) {
+              idsCondominiosUnicos.add(String(idCond))
+            }
+          })
+          
+          const idsArray = Array.from(idsCondominiosUnicos)
+          console.log(`[Mandatos] ✅ ${idsArray.length} IDs únicos de condomínios extraídos dos sindicos`)
+          
+          if (idsArray.length > 0) {
+            console.log('[Mandatos] Primeiros 5 IDs extraídos:', idsArray.slice(0, 5))
+            
+            // Agora buscar sindicos de cada condomínio individualmente
+            console.log(`[Mandatos] Buscando sindicos para ${idsArray.length} condomínios...`)
+            
+            const lotes = []
+            for (let i = 0; i < idsArray.length; i += 10) {
+              lotes.push(idsArray.slice(i, i + 10))
+            }
+            
+            for (const lote of lotes) {
+              const promessas = lote.map(async (idCond: string) => {
+                try {
+                  const resultados: any[] = []
+                  
+                  for (const status of ['atuais', 'passado']) {
+                    try {
+                      const params = new URLSearchParams({
+                        idCondominio: idCond,
+                        comStatus: status,
+                        itensPorPagina: '50',
+                        pagina: '1',
+                      })
+                      
+                      const url = `/api/condominios/superlogica/sindicos?${params.toString()}`
+                      const res = await iapFetch(url, {
+                        headers: companyId ? {
+                          'x-company-id': companyId,
+                          'company-id': companyId,
+                        } : undefined,
+                      })
+                      
+                      if (res.ok) {
+                        const responseData = await res.json().catch(() => [])
+                        let list: any[] = []
+                        
+                        if (Array.isArray(responseData)) {
+                          list = responseData
+                        } else if (responseData?.data && Array.isArray(responseData.data)) {
+                          list = responseData.data
+                        } else if (responseData?.sindicos && Array.isArray(responseData.sindicos)) {
+                          list = responseData.sindicos
+                        }
+                        
+                        resultados.push(...list)
+                      }
+                    } catch (e: any) {
+                      console.warn(`[Mandatos] Erro ao buscar ${status} para condomínio ${idCond}:`, e.message)
+                    }
+                  }
+                  
+                  return resultados
+                } catch (e: any) {
+                  console.warn(`[Mandatos] Erro ao buscar sindicos para condomínio ${idCond}:`, e.message)
+                  return []
+                }
+              })
+              
+              const resultadosLote = await Promise.all(promessas)
+              todasListas = todasListas.concat(...resultadosLote.flat())
+              
+              console.log(`[Mandatos] Lote processado: ${todasListas.length} sindicos encontrados até agora`)
+            }
+          } else {
+            // Se não conseguiu extrair IDs, usar os sindicos encontrados diretamente
+            console.warn('[Mandatos] Não foi possível extrair IDs de condomínios, usando sindicos encontrados diretamente')
+            todasListas = sindicosParaExtrairIds
+          }
+        } catch (e: any) {
+          console.warn('[Mandatos] Erro ao buscar sindicos para extrair IDs:', e.message)
+        }
+      }
+      
+      console.log('[Mandatos] ========== RESUMO FINAL ==========')
+      console.log('[Mandatos] Lista total combinada:', todasListas.length, 'itens')
+      if (todasListas.length > 0) {
+        console.log('[Mandatos] Primeiros itens da lista:', todasListas.slice(0, 3))
+      } else {
+        console.warn('[Mandatos] ⚠️ NENHUM ITEM ENCONTRADO! Verifique:')
+        console.warn('[Mandatos]   1. Se a busca de condomínios funcionou')
+        console.warn('[Mandatos]   2. Se a busca de responsáveis legais retornou dados')
+        console.warn('[Mandatos]   3. Se há erros 422 nas requisições')
+      }
+      
+      // Mapear os dados da API para o formato Mandato
+      const hoje = new Date()
+      hoje.setHours(0, 0, 0, 0)
+      
+      // Log detalhado dos dados recebidos
+      console.log('Itens recebidos da API:', todasListas.length)
+      if (todasListas.length > 0) {
+        todasListas.slice(0, 5).forEach((m: any, idx: number) => {
+          const cargo = m.st_cargo_sin || m.ST_CARGO_SIN || m.cargo || ''
+          console.log(`Item ${idx + 1}: cargo="${cargo}", condomínio="${m.st_nome_cond || m.ST_NOME_COND || m.condominio}"`)
+        })
+        
+        // Mostrar todos os cargos únicos encontrados
+        const cargosUnicos = new Set(todasListas.map((m: any) => m.st_cargo_sin || m.ST_CARGO_SIN || m.cargo || 'Sem cargo'))
+        console.log('Cargos únicos encontrados:', Array.from(cargosUnicos))
+      }
+      
+      // Filtrar apenas cargos que começam com "SI", "Sí", "sí" ou "si"
+      // Função para remover acentos
+      const removerAcentos = (str: string): string => {
+        return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      }
+      
+      const isCargoSindico = (cargo: string): boolean => {
+        if (!cargo || typeof cargo !== 'string') {
+          return false
+        }
+        // Remover espaços, converter para maiúsculas e remover acentos
+        const cargoUpper = removerAcentos(cargo.trim().toUpperCase())
+        // Verificar se começa com "SI" (sem acento, case-insensitive)
+        const comecaComSI = cargoUpper.startsWith('SI')
+        return comecaComSI
+      }
+      
+      // Log de debug: mostrar alguns cargos antes do filtro
+      const cargosAntesFiltro = todasListas.slice(0, 10).map((m: any) => {
+        const cargo = m.st_cargo_sin || m.ST_CARGO_SIN || m.cargo || ''
+        return { cargo, passa: isCargoSindico(cargo) }
+      })
+      console.log('[Mandatos] Exemplos de cargos antes do filtro (primeiros 10):', cargosAntesFiltro)
+      
+      const todasListasFiltradas = todasListas.filter((m: any) => {
+        const cargo = m.st_cargo_sin || m.ST_CARGO_SIN || m.cargo || ''
+        const passa = isCargoSindico(cargo)
+        return passa
+      })
+      
+      console.log(`[Mandatos] Filtrando cargos que começam com "SI": ${todasListas.length} -> ${todasListasFiltradas.length} itens`)
+      
+      // Mostrar cargos únicos após filtro
+      const cargosUnicosFiltrados = new Set(todasListasFiltradas.map((m: any) => m.st_cargo_sin || m.ST_CARGO_SIN || m.cargo || 'Sem cargo'))
+      console.log('[Mandatos] Cargos únicos após filtro (começam com SI):', Array.from(cargosUnicosFiltrados))
+      
+      // Verificar se há cargos que não deveriam passar
+      const cargosInvalidos = todasListasFiltradas.filter((m: any) => {
+        const cargo = m.st_cargo_sin || m.ST_CARGO_SIN || m.cargo || ''
+        const cargoUpper = removerAcentos(cargo.trim().toUpperCase())
+        return !cargoUpper.startsWith('SI')
+      })
+      if (cargosInvalidos.length > 0) {
+        console.error('[Mandatos] ⚠️ ERRO: Encontrados cargos que não começam com "SI" após filtro:', cargosInvalidos.slice(0, 5).map((m: any) => m.st_cargo_sin || m.ST_CARGO_SIN || m.cargo))
+      }
+      
+      // Análise detalhada dos condomínios (após filtro)
+      const condominiosUnicosSet = new Set(todasListasFiltradas.map((m: any) => m.st_nome_cond || m.ST_NOME_COND || m.condominio || 'Sem nome'))
+      const condominiosComContagem = Array.from(condominiosUnicosSet).map(cond => ({
+        nome: cond,
+        quantidade: todasListasFiltradas.filter((m: any) => (m.st_nome_cond || m.ST_NOME_COND || m.condominio || 'Sem nome') === cond).length
+      }))
+      
+      console.log('Condomínios únicos encontrados (após filtro):', condominiosUnicosSet.size)
+      console.log('Distribuição por condomínio:', condominiosComContagem)
+      
+      if (condominiosUnicosSet.size === 1) {
+        console.warn('⚠️ ATENÇÃO: Apenas 1 condomínio encontrado! Isso pode indicar:')
+        console.warn('  1. A API está retornando apenas dados de um condomínio')
+        console.warn('  2. Há um filtro sendo aplicado na API que limita os resultados')
+        console.warn('  3. A paginação não está funcionando corretamente')
+        console.warn('  4. O parâmetro idCondominio pode estar sendo usado implicitamente')
+      }
+      
+      const mapped: Mandato[] = todasListasFiltradas
+        .map((m: any) => {
+          // Determinar status baseado nas datas
+          let status: 'ativo' | 'encerrado' | 'futuro' = 'ativo'
+          
+          const dataEntrada = m.dt_entrada_sin ? parseDate(m.dt_entrada_sin) : null
+          const dataSaida = m.dt_saida_sin ? parseDate(m.dt_saida_sin) : null
+          
+          if (dataSaida && dataSaida < hoje) {
+            status = 'encerrado'
+          } else if (dataEntrada && dataEntrada > hoje) {
+            status = 'futuro'
+          } else if (dataEntrada && dataEntrada <= hoje && (!dataSaida || dataSaida >= hoje)) {
+            status = 'ativo'
+          }
+
+          return {
+            id: String(m.id_sindico_sin || m.ID_SINDICO_SIN || m.id || Math.random()),
+            condominio: m.st_nome_cond || m.ST_NOME_COND || m.condominio || 'Não informado',
+            nomeFantasia: m.st_fantasia_cond || m.ST_FANTASIA_COND || m.nome_fantasia || m.condominio || 'Não informado',
+            nomeResponsavel: m.st_nome_sin || m.ST_NOME_SIN || m.nome || 'Não informado',
+            cargo: m.st_cargo_sin || m.ST_CARGO_SIN || m.cargo || 'Não informado',
+            dataEntrada: m.dt_entrada_sin || m.DT_ENTRADA_SIN || m.data_entrada || '',
+            dataSaida: m.dt_saida_sin || m.DT_SAIDA_SIN || m.data_saida || null,
+            email: m.st_email_sin || m.ST_EMAIL_SIN || m.email || '',
+            telefone: m.st_telefone_sin || m.ST_TELEFONE_SIN || m.telefone || '',
+            celular: m.st_celular_sin || m.ST_CELULAR_SIN || m.celular || '',
+            status,
+            observacoes: m.st_observacao_sin || m.ST_OBSERVACAO_SIN || m.observacoes || undefined,
+          }
+        })
+        // Ordenar por data de saída em ordem crescente (nulls por último)
+        .sort((a, b) => {
+          const dataSaidaA = a.dataSaida ? parseDate(a.dataSaida) : null
+          const dataSaidaB = b.dataSaida ? parseDate(b.dataSaida) : null
+          
+          // Se ambos têm data de saída, ordena crescente (mais antiga primeiro)
+          if (dataSaidaA && dataSaidaB) {
+            return dataSaidaA.getTime() - dataSaidaB.getTime()
+          }
+          // Se apenas A tem data, A vem primeiro (antes dos nulls)
+          if (dataSaidaA && !dataSaidaB) {
+            return -1
+          }
+          // Se apenas B tem data, B vem primeiro (antes dos nulls)
+          if (!dataSaidaA && dataSaidaB) {
+            return 1
+          }
+          // Se nenhum tem data, ordena por data de entrada crescente como fallback
+          const dataEntradaA = a.dataEntrada ? parseDate(a.dataEntrada) : null
+          const dataEntradaB = b.dataEntrada ? parseDate(b.dataEntrada) : null
+          if (dataEntradaA && dataEntradaB) {
+            return dataEntradaA.getTime() - dataEntradaB.getTime()
+          }
+          return 0
+        })
+      
+      // Verificação final: garantir que todos os cargos mapeados começam com "SI"
+      const mappedFiltrado = mapped.filter(item => {
+        const cargoUpper = removerAcentos((item.cargo || '').trim().toUpperCase())
+        const comecaComSI = cargoUpper.startsWith('SI')
+        if (!comecaComSI) {
+          console.warn(`[Mandatos] ⚠️ Cargo removido no filtro final: "${item.cargo}"`)
+        }
+        return comecaComSI
+      })
+      
+      console.log(`[Mandatos] Dados mapeados e ordenados: ${mapped.length} -> ${mappedFiltrado.length} itens (apenas cargos que começam com "SI", ordenados por data de saída)`)
+      
+      // Log dos cargos únicos no resultado final
+      const cargosFinais = new Set(mappedFiltrado.map(m => m.cargo))
+      console.log('[Mandatos] Cargos únicos no resultado final:', Array.from(cargosFinais))
+      
+      // Filtrar duplicatas: manter apenas um síndico por condomínio
+      // Se houver múltiplos síndicos para o mesmo condomínio, manter o mais recente e ativo
+      // Critério de prioridade:
+      // 1. Data de entrada mais recente (mandato mais atual)
+      // 2. Se empate, data de fim mais distante (mandato com maior duração)
+      // 3. Se ainda empate, manter o primeiro encontrado
+      const condominiosUnicos = new Map<string, Mandato>()
+      
+      // Função para normalizar nome do condomínio (remover espaços extras, converter para maiúsculas)
+      // Também remove prefixos comuns como "CONDOMÍNIO", "RESIDENCIAL", números iniciais, etc.
+      const normalizarNomeCondominio = (nome: string): string => {
+        let normalizado = nome.trim().replace(/\s+/g, ' ').toUpperCase()
+        // Remover prefixos comuns
+        normalizado = normalizado.replace(/^(CONDOMÍNIO|CONDOMINIO|RESIDENCIAL|EDIFÍCIO|EDIFICIO)\s+/i, '')
+        // Remover números iniciais (como "156 VILLA TOSCANA" -> "VILLA TOSCANA")
+        normalizado = normalizado.replace(/^\d+\s+/, '')
+        return normalizado.trim()
+      }
+      
+      mappedFiltrado.forEach((mandato) => {
+        const nomeCondominioNormalizado = normalizarNomeCondominio(mandato.condominio)
+        const mandatoExistente = condominiosUnicos.get(nomeCondominioNormalizado)
+        
+        if (!mandatoExistente) {
+          // Primeira ocorrência deste condomínio
+          condominiosUnicos.set(nomeCondominioNormalizado, mandato)
+        } else {
+          // Já existe um mandato para este condomínio - decidir qual manter
+          const dataEntradaAtual = mandato.dataEntrada ? parseDate(mandato.dataEntrada) : null
+          const dataEntradaExistente = mandatoExistente.dataEntrada ? parseDate(mandatoExistente.dataEntrada) : null
+          const dataFimAtual = mandato.dataSaida ? parseDate(mandato.dataSaida) : null
+          const dataFimExistente = mandatoExistente.dataSaida ? parseDate(mandatoExistente.dataSaida) : null
+          
+          let deveSubstituir = false
+          let motivo = ''
+          
+          if (dataEntradaAtual && dataEntradaExistente) {
+            // Comparar por data de entrada (mais recente = melhor)
+            if (dataEntradaAtual.getTime() > dataEntradaExistente.getTime()) {
+              deveSubstituir = true
+              motivo = `data entrada mais recente (${mandato.dataEntrada} vs ${mandatoExistente.dataEntrada})`
+            } else if (dataEntradaAtual.getTime() === dataEntradaExistente.getTime()) {
+              // Se datas de entrada são iguais, comparar por data de fim (mais distante = melhor)
+              if (dataFimAtual && dataFimExistente) {
+                if (dataFimAtual.getTime() > dataFimExistente.getTime()) {
+                  deveSubstituir = true
+                  motivo = `data fim mais distante (${mandato.dataSaida} vs ${mandatoExistente.dataSaida})`
+                }
+              } else if (dataFimAtual && !dataFimExistente) {
+                // Atual tem data de fim, existente não - preferir atual
+                deveSubstituir = true
+                motivo = 'existente não tem data de fim'
+              }
+            }
+          } else if (dataEntradaAtual && !dataEntradaExistente) {
+            // Mandato atual tem data, existente não tem - substituir
+            deveSubstituir = true
+            motivo = 'existente não tem data de entrada'
+          }
+          
+          if (deveSubstituir) {
+            condominiosUnicos.set(nomeCondominioNormalizado, mandato)
+            console.log(`[Mandatos] Substituindo síndico do condomínio "${mandato.condominio}" (${motivo})`)
+            console.log(`[Mandatos]   Antigo: ${mandatoExistente.nomeResponsavel} (${mandatoExistente.dataEntrada} - ${mandatoExistente.dataSaida || 'sem fim'})`)
+            console.log(`[Mandatos]   Novo: ${mandato.nomeResponsavel} (${mandato.dataEntrada} - ${mandato.dataSaida || 'sem fim'})`)
+          }
+        }
+      })
+      
+      const mandatosUnicos = Array.from(condominiosUnicos.values())
+      console.log(`[Mandatos] Removendo duplicatas: ${mappedFiltrado.length} -> ${mandatosUnicos.length} mandatos únicos (um por condomínio)`)
+      
+      // Log de condomínios únicos
+      const nomesCondominios = mandatosUnicos.map(m => m.condominio)
+      console.log(`[Mandatos] ✅ Condomínios únicos encontrados: ${nomesCondominios.length}`)
+      if (nomesCondominios.length > 0 && nomesCondominios.length <= 10) {
+        console.log('[Mandatos] Lista de condomínios:', nomesCondominios)
+      } else if (nomesCondominios.length > 10) {
+        console.log('[Mandatos] Primeiros 10 condomínios:', nomesCondominios.slice(0, 10))
+        console.log('[Mandatos] Últimos 10 condomínios:', nomesCondominios.slice(-10))
+      }
+      
+      if (mandatosUnicos.length === 0) {
+        console.error('[Mandatos] ⚠️ ATENÇÃO: Nenhum mandato único encontrado após remoção de duplicatas!')
+        console.error('[Mandatos] Dados antes da remoção de duplicatas:', mappedFiltrado.length, 'itens')
+        if (mappedFiltrado.length > 0) {
+          console.error('[Mandatos] Primeiros 5 itens antes da remoção:', mappedFiltrado.slice(0, 5).map(m => ({
+            condominio: m.condominio,
+            responsavel: m.nomeResponsavel,
+            cargo: m.cargo
+          })))
+        }
+      }
+      
+      console.log('[Mandatos] ========== FINALIZANDO CARREGAMENTO ==========')
+      console.log('[Mandatos] Definindo', mandatosUnicos.length, 'mandatos únicos no estado')
+      
+      setData(mandatosUnicos)
+  } catch (e: any) {
+    let errorMessage = e?.message || String(e)
+    
+    // Melhorar mensagens de erro comuns
+    if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
+      errorMessage = 'Erro de conexão: Não foi possível conectar ao servidor. Verifique sua conexão ou se o servidor está rodando.'
+    } else if (errorMessage.includes('Timeout')) {
+      errorMessage = 'Timeout: A requisição demorou muito para responder.\n\n' +
+        'Possíveis causas:\n' +
+        '• A API está lenta ou sobrecarregada\n' +
+        '• Problemas de conexão com o servidor\n' +
+        '• A empresa selecionada pode não ter dados ou ter muitos registros\n\n' +
+        'Tente:\n' +
+        '• Selecionar outra empresa no seletor do topo\n' +
+        '• Verificar sua conexão com a internet\n' +
+        '• Tentar novamente em alguns instantes'
+    } else if (errorMessage.includes('401') || errorMessage.includes('expirado') || errorMessage.includes('expired')) {
+      tokenExpiredRef.current = true
+      errorMessage = 'Token de autenticação expirado. Para renovar, execute no terminal: ./iap auth\n\nDepois, recarregue a página.'
+    } else if (errorMessage.includes('403') || errorMessage.includes('Permissão') || errorMessage.includes('permissão')) {
+      errorMessage = 'Acesso negado: Você não tem permissão para acessar este recurso.\n\n' + 
+        (errorMessage.includes('abimoveis') ? 'Tente selecionar outra empresa no seletor no topo da página.' : '')
+    } else if (errorMessage.includes('404')) {
+      errorMessage = 'Recurso não encontrado (404): O endpoint não existe ou foi movido.'
+    }
+    
+    setErro(errorMessage)
+    console.error('Erro ao carregar mandatos:', e)
+  } finally {
+    setLoading(false)
+    loadingRef.current = false
+  }
+}
+
+  // Função auxiliar para parse de datas
+  const parseDate = (dateString: string): Date | null => {
+    if (!dateString) return null
+    try {
+      // Formato esperado: "01/01/2018 00:00:00" ou "01/01/2018" (DD/MM/YYYY)
+      const parts = dateString.trim().split(' ')
+      const datePart = parts[0]
+      const dateParts = datePart.split('/')
+      
+      if (dateParts.length === 3) {
+        // DD/MM/YYYY (formato brasileiro)
+        const dia = parseInt(dateParts[0], 10)
+        const mes = parseInt(dateParts[1], 10) - 1 // Mês é 0-indexed em Date
+        const ano = parseInt(dateParts[2], 10)
+        
+        // Validar se os valores são válidos
+        if (isNaN(dia) || isNaN(mes) || isNaN(ano)) return null
+        if (dia < 1 || dia > 31 || mes < 0 || mes > 11 || ano < 1900 || ano > 2100) return null
+        
+        return new Date(ano, mes, dia)
+      }
+      
+      // Tentar parse direto
+      const date = new Date(dateString)
+      if (isNaN(date.getTime())) return null
+      return date
+    } catch {
+      return null
+    }
+  }
+
+  // Filtrar apenas mandatos ativos (não mostrar encerrados)
+  const filteredData = data
+    .filter(item => item.status === 'ativo') // Apenas ativos
+    .filter(item => {
+      const matchesSearch = !searchTerm || 
+        item.condominio.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.nomeResponsavel.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.cargo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.email.toLowerCase().includes(searchTerm.toLowerCase())
+      
+      return matchesSearch
+    })
+    // Ordenar conforme seleção do usuário
+    .sort((a, b) => {
+      if (ordenacao === 'nome') {
+        // Ordenar por nome do condomínio (A-Z)
+        return a.condominio.localeCompare(b.condominio, 'pt-BR', { sensitivity: 'base' })
+      } else {
+        // Ordenar por data de fim (Saída) em ordem crescente
+        // Vencidos aparecem primeiro (datas passadas), depois próximos a vencer
+        const dataFimA = a.dataSaida ? parseDate(a.dataSaida) : null
+        const dataFimB = b.dataSaida ? parseDate(b.dataSaida) : null
+        
+        // Se ambos têm data de fim, ordena crescente (vencimentos mais próximos primeiro)
+        // Datas passadas (vencidas) terão valores menores e aparecerão primeiro
+        if (dataFimA && dataFimB) {
+          return dataFimA.getTime() - dataFimB.getTime()
+        }
+        // Se apenas A tem data, A vem primeiro (antes dos sem data)
+        if (dataFimA && !dataFimB) {
+          return -1
+        }
+        // Se apenas B tem data, B vem primeiro (antes dos sem data)
+        if (!dataFimA && dataFimB) {
+          return 1
+        }
+        // Se nenhum tem data, ordena por data de início como fallback
+        const dataInicioA = a.dataEntrada ? parseDate(a.dataEntrada) : null
+        const dataInicioB = b.dataEntrada ? parseDate(b.dataEntrada) : null
+        if (dataInicioA && dataInicioB) {
+          return dataInicioA.getTime() - dataInicioB.getTime()
+        }
+        return 0
+      }
+    })
+
+  const getStatusBadge = (status: string) => {
+    const styles = {
+      ativo: "bg-green-100 text-green-800",
+      encerrado: "bg-gray-100 text-gray-800",
+      futuro: "bg-blue-100 text-blue-800"
+    }
+    return (
+      <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium ${styles[status as keyof typeof styles] || 'bg-gray-100 text-gray-800'}`}>
+        {status.charAt(0).toUpperCase() + status.slice(1)}
+      </span>
+    )
+  }
+
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return '-'
+    try {
+      const date = parseDate(dateString)
+      if (!date) return dateString
+      return date.toLocaleDateString('pt-BR')
+    } catch {
+      return dateString
+    }
+  }
+
+  // Calcular dias até vencimento do mandato
+  const calcularDiasAteVencimento = (dataFim: string | null): number | null => {
+    if (!dataFim) return null
+    const hoje = new Date()
+    hoje.setHours(0, 0, 0, 0)
+    const fim = parseDate(dataFim)
+    if (!fim) return null
+    fim.setHours(0, 0, 0, 0)
+    const diffTime = fim.getTime() - hoje.getTime()
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    return diffDays
+  }
+
+  // Determinar estilo da linha baseado no status do mandato
+  const getRowStyle = (item: Mandato): string => {
+    const diasAteVencimento = calcularDiasAteVencimento(item.dataSaida)
+    
+    if (diasAteVencimento === null) {
+      // Sem data de fim - estilo normal
+      return 'border-b border-gray-200 hover:bg-gray-50'
+    }
+    
+    if (diasAteVencimento < 0) {
+      // Mandato vencido - vermelho negrito
+      return 'border-b border-gray-200 bg-red-50 hover:bg-red-100 font-bold text-red-900'
+    } else if (diasAteVencimento <= 60) {
+      // Até 60 dias para vencer - amarelo negrito
+      return 'border-b border-gray-200 bg-yellow-50 hover:bg-yellow-100 font-bold text-yellow-900'
+    }
+    
+    // Mais de 60 dias - estilo normal
+    return 'border-b border-gray-200 hover:bg-gray-50'
+  }
+
+  // Obter texto da previsão de eleição
+  const getPrevisaoEleicao = (item: Mandato): string => {
+    const diasAteVencimento = calcularDiasAteVencimento(item.dataSaida)
+    
+    if (diasAteVencimento === null) {
+      return '-'
+    }
+    
+    if (diasAteVencimento < 0) {
+      return `Vencido há ${Math.abs(diasAteVencimento)} dia(s)`
+    }
+    
+    if (diasAteVencimento <= 30) {
+      return `⚠️ ${diasAteVencimento} dia(s) - ALERTA`
+    }
+    
+    if (diasAteVencimento <= 60) {
+      return `${diasAteVencimento} dia(s)`
+    }
+    
+    return `${diasAteVencimento} dia(s)`
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white shadow rounded-lg p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">Mandatos - Responsáveis Legais</h1>
+          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">v1.0.1</span>
+        </div>
+        
+        {/* Mensagem de erro */}
+        {erro && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-red-800 text-sm font-semibold mb-2">Erro ao carregar mandatos:</p>
+            <p className="text-red-700 text-sm mb-3 whitespace-pre-line">{erro}</p>
+            {erro.includes('expirado') || erro.includes('expired') ? (
+              <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                <p className="text-yellow-800 text-xs font-semibold mb-1">Como renovar o token:</p>
+                <code className="block text-xs bg-gray-100 p-2 rounded mb-2">./iap auth</code>
+                <p className="text-yellow-700 text-xs">Execute este comando no terminal e depois recarregue a página.</p>
+              </div>
+            ) : (
+              <p className="text-red-600 text-xs mb-2">Verifique o console do navegador (F12) para mais detalhes.</p>
+            )}
+            <button
+              onClick={() => {
+                tokenExpiredRef.current = false
+                carregarMandatos()
+              }}
+              className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
+            >
+              Tentar novamente
+            </button>
+          </div>
+        )}
+
+        {/* Loading */}
+        {loading && (
+          <div className="mb-4 p-4 text-center">
+            <p className="text-gray-600">Carregando mandatos...</p>
+          </div>
+        )}
+        
+        {/* Filtros */}
+        <div className="mb-4">
+          <div className="flex flex-wrap gap-4 items-end">
+            <div className="flex-1 min-w-[200px]">
+              <label className="block text-xs font-medium text-gray-700 mb-1">Buscar</label>
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Buscar por condomínio, nome, cargo..."
+                className="border border-gray-300 rounded px-2 py-1.5 text-xs w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Ordenar por</label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setOrdenacao('vencimento')}
+                  className={`px-3 py-1.5 text-xs rounded border transition-colors ${
+                    ordenacao === 'vencimento'
+                      ? 'bg-blue-500 text-white border-blue-500'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  Vencimento
+                </button>
+                <button
+                  onClick={() => setOrdenacao('nome')}
+                  className={`px-3 py-1.5 text-xs rounded border transition-colors ${
+                    ordenacao === 'nome'
+                      ? 'bg-blue-500 text-white border-blue-500'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  Nome
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="text-xs text-gray-600 mb-2">
+          {filteredData.length} mandato(s) encontrado(s) de {data.filter(item => item.status === 'ativo').length} condomínio(s) ativo(s)
+        </div>
+
+        {/* Tabela */}
+        {!loading && !erro && filteredData.length === 0 && (
+          <div className="text-center py-8 text-gray-500">
+            Nenhum mandato encontrado.
+          </div>
+        )}
+        
+        {!loading && filteredData.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-xs">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="border-b border-gray-300 px-2 py-1 text-center font-semibold text-gray-700 text-xs w-12">#</th>
+                <th className="border-b border-gray-300 px-2 py-1 text-left font-semibold text-gray-700 text-xs">Condomínio</th>
+                <th className="border-b border-gray-300 px-2 py-1 text-left font-semibold text-gray-700 text-xs">Responsável</th>
+                <th className="border-b border-gray-300 px-2 py-1 text-left font-semibold text-gray-700 text-xs">Cargo</th>
+                <th className="border-b border-gray-300 px-2 py-1 text-left font-semibold text-gray-700 text-xs">Início</th>
+                <th className="border-b border-gray-300 px-2 py-1 text-left font-semibold text-gray-700 text-xs">Fim</th>
+                <th className="border-b border-gray-300 px-2 py-1 text-left font-semibold text-gray-700 text-xs">Previsão de Eleição</th>
+                <th className="border-b border-gray-300 px-2 py-1 text-left font-semibold text-gray-700 text-xs">Email</th>
+                <th className="border-b border-gray-300 px-2 py-1 text-left font-semibold text-gray-700 text-xs">Telefone</th>
+                <th className="border-b border-gray-300 px-2 py-1 text-left font-semibold text-gray-700 text-xs">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredData.map((item, index) => {
+                const diasAteVencimento = calcularDiasAteVencimento(item.dataSaida)
+                const isVencido = diasAteVencimento !== null && diasAteVencimento < 0
+                const isAte60Dias = diasAteVencimento !== null && diasAteVencimento >= 0 && diasAteVencimento <= 60
+                
+                return (
+                  <tr key={item.id} className={getRowStyle(item)}>
+                    <td className="border-b border-gray-200 px-2 py-1 text-center text-xs text-gray-500">{index + 1}</td>
+                    <td className="border-b border-gray-200 px-2 py-1 font-medium text-xs whitespace-nowrap overflow-hidden text-ellipsis max-w-xs" title={item.condominio}>{item.condominio}</td>
+                    <td className="border-b border-gray-200 px-2 py-1 text-xs">{item.nomeResponsavel}</td>
+                    <td className="border-b border-gray-200 px-2 py-1 text-xs">{item.cargo}</td>
+                    <td className="border-b border-gray-200 px-2 py-1 text-xs">{formatDate(item.dataEntrada)}</td>
+                    <td className="border-b border-gray-200 px-2 py-1 text-xs">{formatDate(item.dataSaida)}</td>
+                    <td className={`border-b border-gray-200 px-2 py-1 text-xs ${isVencido ? 'text-red-700 font-bold' : isAte60Dias ? 'text-yellow-700 font-bold' : ''}`}>
+                      {getPrevisaoEleicao(item)}
+                    </td>
+                    <td className="border-b border-gray-200 px-2 py-1 text-xs">{item.email || '-'}</td>
+                    <td className="border-b border-gray-200 px-2 py-1 text-xs">
+                      {item.celular || item.telefone || '-'}
+                    </td>
+                    <td className="border-b border-gray-200 px-2 py-1 text-xs">{getStatusBadge(item.status)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        )}
+        
+        {/* Rodapé */}
+        <div className="mt-4 pt-3 border-t border-gray-200 flex items-center justify-between text-xs text-gray-500">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">λ</span>
+            <span>assa</span>
+          </div>
+          <div>
+            {filteredData.length} mandato(s) encontrado(s)
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+

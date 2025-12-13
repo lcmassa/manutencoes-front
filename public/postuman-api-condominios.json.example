@@ -1,0 +1,23 @@
+{
+  "condominios": [
+    {
+      "condominio": "Condomínio Residencial Exemplo",
+      "seguradora": "Seguradora ABC",
+      "vencimento": "2025-12-31",
+      "emailSindico": "sindico@exemplo.com",
+      "numeroApolice": "123456789",
+      "valor": 5000.00,
+      "observacoes": "Seguro de responsabilidade civil"
+    },
+    {
+      "condominio": "Edifício Comercial XYZ",
+      "seguradora": "Seguradora XYZ",
+      "vencimento": "2025-11-30",
+      "emailSindico": "sindico@xyz.com",
+      "numeroApolice": "987654321",
+      "valor": 8000.00,
+      "observacoes": "Seguro predial completo"
+    }
+  ]
+}
+

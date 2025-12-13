@@ -1,0 +1,4 @@
+Sistema de Manutenções - Frontend
+Versão: 1.0.1
+Data do Pacote: 2025-12-11 13:50:41
+Node.js Requerido: >=18.0.0
