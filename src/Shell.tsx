@@ -70,6 +70,7 @@ const menuItemsData = [
   { id: 'fluxo-caixa', label: 'Fluxo de Caixa', path: '#/fluxo-caixa', icon: 'DollarSign', section: 'acompanhar' },
   { id: 'inadimplencia', label: 'Inadimplência', path: '#/inadimplencia', icon: 'AlertCircle', section: 'acompanhar' },
   { id: 'receitas-mes', label: 'Receitas do Mês', path: '#/receitas-mes', icon: 'Wallet', section: 'acompanhar' },
+  { id: 'saldo-bancario', label: 'Saldo Bancário', path: '#/saldo-bancario', icon: 'Wallet', section: 'acompanhar' },
   // Outros módulos
   { id: 'debito-automatico', label: 'Débito Automático', path: '#/debito-automatico', icon: 'CreditCard', section: 'outros' },
   { id: 'condominios', label: 'Condomínios', path: '#/condominios', icon: 'Building2', section: 'outros' },

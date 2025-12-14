@@ -12,6 +12,7 @@ import { FluxoCaixa } from './pages/FluxoCaixa'
 import { Inadimplencia } from './pages/Inadimplencia'
 import { ReceitasMes } from './pages/ReceitasMes'
 import { PrevisaoOrcamentaria } from './pages/PrevisaoOrcamentaria'
+import { SaldoBancario } from './pages/SaldoBancario'
 import { AuthScreen } from './pages/AuthScreen'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
@@ -136,6 +137,10 @@ function App() {
         {
           path: 'receitas-mes',
           element: <ReceitasMes />,
+        },
+        {
+          path: 'saldo-bancario',
+          element: <SaldoBancario />,
         },
         {
           path: '*',
