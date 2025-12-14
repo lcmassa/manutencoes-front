@@ -90,7 +90,7 @@ const menuItemsData = [
 function createRequester(token: string | null, companyId: string | null): (path: string, init?: RequestInit) => Promise<Response> {
   return async (path: string, init?: RequestInit) => {
     // Construir URL completa
-    const apiUrl = (import.meta as any).env?.VITE_API_URL || 'https://iap-gateway.applications.hml.superlogica.tech'
+    const apiUrl = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL || 'https://iap-gateway.applications.hml.superlogica.tech'
     const isDevelopment = window.location.hostname === 'gestao.adm' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     const fullUrl = path.startsWith('http') 
       ? path 
@@ -122,16 +122,11 @@ function createRequester(token: string | null, companyId: string | null): (path:
 export function Shell() {
   const { user, companyId, companies, setCompanyId, loading, token } = useAuth()
   
-  // Se não há token, não renderizar (deve mostrar AuthScreen)
-  if (!token) {
-    return null
-  }
-
-  // Criar requester para useLayout
+  // Criar requester para useLayout (sempre chamar hooks antes de returns condicionais)
   const requester = useMemo(() => createRequester(token, companyId), [token, companyId])
   
   // Obter dados do layout (opcional - pode retornar vazio se não houver endpoint)
-  const { coreMenu: layoutCoreMenu, brand, footer, themeTokens } = useLayout(companyId, requester)
+  const { brand, themeTokens } = useLayout(companyId, requester)
   
   // Converter itens do menu para formato MenuItem do AppShell
   const coreMenuItems: MenuItem[] = useMemo(() => {
@@ -162,6 +157,11 @@ export function Shell() {
       icon: iconMap[item.icon] || undefined,
     }))
   }, [])
+
+  // Se não há token, não renderizar (deve mostrar AuthScreen)
+  if (!token) {
+    return null
+  }
 
   // Se ainda está carregando, mostra loading simples
   if (loading) {

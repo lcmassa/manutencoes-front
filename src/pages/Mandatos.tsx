@@ -336,7 +336,7 @@ export function Mandatos() {
         let paginaAtual = 1
         let temMaisPaginas = true
         let totalPaginasConhecido: number | undefined
-        let itensPorPagina = 50 // API recomenda no máximo 50
+        const itensPorPagina = 50 // API recomenda no máximo 50
         let totalRequests = 0
         
         while (temMaisPaginas && !tokenExpiredRef.current) {

@@ -238,7 +238,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.log('[AuthContext] ⚠️ Company ID normalizado para formato correto:', abimoveisCompanyId)
         }
         
-        let initialCompanyId = 
+        const initialCompanyId = 
           permissionFinal ? abimoveisCompanyId :
           (storedCompanyId && permissions.some(p => 
             p.company_id?.toLowerCase() === storedCompanyId.toLowerCase()

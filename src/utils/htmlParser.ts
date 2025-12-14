@@ -22,7 +22,7 @@ export function parseHtmlSafe(html: string): {
   
   // Node environment: use cheerio (instale: npm i cheerio)
   // require aqui para não quebrar bundlers/browser
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+   
   const cheerio = require('cheerio')
   const $ = cheerio.load(html)
   

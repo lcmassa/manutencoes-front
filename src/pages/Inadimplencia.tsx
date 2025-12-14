@@ -511,7 +511,7 @@ async function buscarInadimplenciasPorCondominio(
 
         const inad = item.inad || item
         const idCondominioItem = inad.id_condominio_cond || inad.idCondominio || item.id_condominio_cond || item.idCondominio || idCondominio
-        let condominioNome = inad.st_fantasia_cond || inad.st_nome_cond || inad.nomeCondominio || inad.nomeFantasia || item.st_fantasia_cond || item.st_nome_cond || item.nomeCondominio || item.nomeFantasia || ''
+        const condominioNome = inad.st_fantasia_cond || inad.st_nome_cond || inad.nomeCondominio || inad.nomeFantasia || item.st_fantasia_cond || item.st_nome_cond || item.nomeCondominio || item.nomeFantasia || ''
 
         for (const rec of recebimentos) {
           const idUnidade = rec.id_unidade_uni || rec.idUnidade || inad.id_unidade_uni || inad.idUnidade || ''

@@ -67,7 +67,7 @@ function LoadingScreen() {
 // Componente que verifica autenticação e mostra tela apropriada
 // SEM redirecionamentos - apenas render condicional
 function AppContent() {
-  const { token, loading, error, user } = useAuth()
+  const { token, loading, error } = useAuth()
 
   // Se está carregando, mostra loading
   if (loading) {

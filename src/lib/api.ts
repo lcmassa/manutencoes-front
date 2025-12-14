@@ -30,7 +30,7 @@ const apiRequest = async <T = any>(
   }
   
   // Converter optionsHeaders para objeto simples se necessário
-  let optionsHeadersObj: Record<string, string> = {}
+  const optionsHeadersObj: Record<string, string> = {}
   let explicitAuthHeader: string | null = null
   
   if (optionsHeaders) {

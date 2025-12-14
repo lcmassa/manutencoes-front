@@ -174,8 +174,8 @@ function tentarConstruirData(valor: string | Date | null | undefined): Date | nu
 
   const barrasMatch = somenteData.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/)
   if (barrasMatch) {
-    let parte1 = Number(barrasMatch[1])
-    let parte2 = Number(barrasMatch[2])
+    const parte1 = Number(barrasMatch[1])
+    const parte2 = Number(barrasMatch[2])
     const ano = Number(barrasMatch[3].length === 2 ? `20${barrasMatch[3]}` : barrasMatch[3])
     if (!Number.isFinite(parte1) || !Number.isFinite(parte2) || !Number.isFinite(ano)) return null
     let mes = parte1
@@ -967,7 +967,7 @@ export function PrevisaoOrcamentaria() {
         mapa.set(codigoMae, descricao ? `${codigoMae} - ${descricao}` : codigoMae)
       }
     })
-    let lista = Array.from(mapa.entries())
+    const lista = Array.from(mapa.entries())
       .map(([codigo, label]) => ({ codigo, label }))
       .filter((c) => !isContaMaeExtraordinaria(c.codigo, c.label))
       .sort((a, b) => compareCodigoStrings(a.codigo, b.codigo))
