@@ -27,6 +27,7 @@ import {
   TrendingUp,
   AlertCircle,
   Wallet,
+  CheckCircle2,
 } from 'lucide-react'
 
 // Mapeamento de ícones do lucide-react para IconName do AppShell (se necessário)
@@ -56,6 +57,21 @@ const iconMap: Record<string, React.ReactNode> = {
   AlertCircle: <AlertCircle size={18} />,
   Wallet: <Wallet size={18} />,
 }
+
+// Páginas desenvolvidas (com rotas configuradas)
+const developedPages = new Set([
+  'dashboard',
+  'mandatos',
+  'manutencoes',
+  'certificado-digital',
+  'assembleias',
+  'seguros',
+  'fluxo-caixa',
+  'previsao-orcamentaria',
+  'inadimplencia',
+  'receitas-mes',
+  'saldo-bancario',
+])
 
 // Itens do menu organizados por seção
 const menuItemsData = [
@@ -142,21 +158,27 @@ export function Shell() {
       ...acompanharItems
     ]
     
-    return allCoreItems.map(item => ({
-      label: item.label,
-      href: item.path,
-      icon: iconMap[item.icon] || undefined,
-    }))
+    return allCoreItems.map(item => {
+      const isDeveloped = developedPages.has(item.id)
+      return {
+        label: isDeveloped ? `${item.label} ✓` : item.label,
+        href: item.path,
+        icon: iconMap[item.icon] || undefined,
+      }
+    })
   }, [])
 
   const extraMenuItems: MenuItem[] = useMemo(() => {
     const outrosItems = menuItemsData.filter(item => item.section === 'outros')
     
-    return outrosItems.map(item => ({
-      label: item.label,
-      href: item.path,
-      icon: iconMap[item.icon] || undefined,
-    }))
+    return outrosItems.map(item => {
+      const isDeveloped = developedPages.has(item.id)
+      return {
+        label: isDeveloped ? `${item.label} ✓` : item.label,
+        href: item.path,
+        icon: iconMap[item.icon] || undefined,
+      }
+    })
   }, [])
 
   // Se não há token, não renderizar (deve mostrar AuthScreen)
