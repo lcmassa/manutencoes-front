@@ -15,3 +15,127 @@ body {
   min-height: 100vh;
 }
 
+/* Customização do AppShell para mostrar labels no menu */
+.grid-cols-\[64px_1fr\] {
+  grid-template-columns: 220px 1fr !important;
+}
+
+.grid-cols-\[64px_1fr\] > aside {
+  align-items: stretch !important;
+  padding-top: 0 !important;
+}
+
+/* Substituir o botão de trocar app pelo logotipo da Superlógica */
+.grid-cols-\[64px_1fr\] > aside > button:first-of-type {
+  width: 100% !important;
+  height: auto !important;
+  min-height: auto !important;
+  padding: 1rem 0.5rem !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid rgb(51 65 85) !important;
+  margin-bottom: 0.5rem;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: default !important;
+  position: relative;
+}
+
+.grid-cols-\[64px_1fr\] > aside > button:first-of-type:hover {
+  background: transparent !important;
+}
+
+/* Esconder a imagem pequena do logo embutido */
+.grid-cols-\[64px_1fr\] > aside > button:first-of-type img {
+  display: none !important;
+}
+
+/* Adicionar o logotipo maior usando background-image */
+.grid-cols-\[64px_1fr\] > aside > button:first-of-type::before {
+  content: '';
+  display: block;
+  width: 100%;
+  max-width: 150px;
+  height: 48px;
+  background-image: url('/super.png');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  margin-bottom: 0.5rem;
+}
+
+/* Adicionar a sigla abaixo do logotipo */
+.grid-cols-\[64px_1fr\] > aside > button:first-of-type::after {
+  content: 'Σα$$α';
+  display: block;
+  color: rgb(203 213 225);
+  font-size: 0.75rem;
+  font-family: monospace;
+  line-height: 1;
+}
+
+.grid-cols-\[64px_1fr\] > aside > button:first-of-type span.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Estilizar o slot topLeft para mostrar logotipo e sigla (se ainda estiver sendo usado) */
+.grid-cols-\[64px_1fr\] > aside > div:nth-of-type(2) {
+  width: 100% !important;
+  min-width: 100% !important;
+  height: auto !important;
+  padding: 1rem 0.5rem !important;
+  border-bottom: 1px solid rgb(51 65 85) !important;
+  margin-bottom: 0.5rem;
+  order: -1;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.grid-cols-\[64px_1fr\] > aside {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.grid-cols-\[64px_1fr\] > aside nav {
+  align-items: stretch !important;
+  width: 100%;
+  padding: 0 0.5rem;
+}
+
+.grid-cols-\[64px_1fr\] > aside nav a {
+  width: 100% !important;
+  min-width: auto !important;
+  height: auto !important;
+  padding: 0.5rem 0.75rem !important;
+  justify-content: flex-start !important;
+  gap: 0.75rem;
+  border-radius: 0.375rem;
+}
+
+.grid-cols-\[64px_1fr\] > aside nav a span.sr-only {
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: visible !important;
+  clip: auto !important;
+  white-space: normal !important;
+  border: 0 !important;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: inherit;
+  opacity: 1 !important;
+}
+
