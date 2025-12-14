@@ -1,111 +1,38 @@
-  name: CI - Manutencoes Front
+name: CI - Manutencoes Front
 
-  on:
-    pull_request:
-    push:
-      branches: [main]
+on:
+  pull_request:
+  push:
+    branches: [main]
 
-  jobs:
-    validate:
-      runs-on: ubuntu-latest
+jobs:
+  validate:
+    runs-on: ubuntu-latest
 
-      steps:
-        - uses: actions/checkout@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-        - name: Setup Node
-          uses: actions/setup-node@v4
-          with:
-            node-version: 22
-            cache: pnpm
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
 
-        - name: Install pnpm
-          run: npm install -g pnpm
+      - name: Enable Corepack
+        run: corepack enable
 
-        - name: Install dependencies
-          run: pnpm install --frozen-lockfile
+      - name: Prepare pnpm
+        run: corepack prepare pnpm@10 --activate
 
-        - name: Lint
-          run: pnpm lint
+      - name: Install dependencies
+        run: pnpm install
 
-        - name: Tests
-          run: pnpm test
+      - name: Lint
+        run: pnpm lint
 
-        - name: Build
-          run: pnpm build
-  name: CI - Manutencoes Front
+      - name: Tests
+        run: pnpm test
 
-  on:
-    pull_request:
-    push:
-      branches: [main]
-
-  jobs:
-    validate:
-      runs-on: ubuntu-latest
-
-      steps:
-        - name: Checkout
-          uses: actions/checkout@v4
-
-        - name: Setup Node
-          uses: actions/setup-node@v4
-          with:
-            node-version: 22
-
-        # ✅ FORMA CORRETA DE INSTALAR PNPM NO CI
-        - name: Setup pnpm
-          uses: pnpm/action-setup@v4
-          with:
-            version: 10
-
-        - name: Install dependencies
-          run: pnpm install --frozen-lockfile || pnpm install
-
-        - name: Lint
-          run: pnpm lint
-
-        - name: Tests
-          run: pnpm test
-
-        - name: Build
-          run: pnpm build
-  name: CI - Manutencoes Front
-
-  on:
-    pull_request:
-    push:
-      branches: [main]
-
-  jobs:
-    validate:
-      runs-on: ubuntu-latest
-
-      steps:
-        - name: Checkout
-          uses: actions/checkout@v4
-
-        - name: Setup Node
-          uses: actions/setup-node@v4
-          with:
-            node-version: 22
-            cache: 'pnpm'
-
-        # ✅ Corepack é OBRIGATÓRIO com Node 20+
-        - name: Enable Corepack
-          run: corepack enable
-
-        # ✅ Define versão do pnpm usada no projeto
-        - name: Prepare pnpm
-          run: corepack prepare pnpm@10 --activate
-
-        - name: Install dependencies
-          run: pnpm install
-
-        - name: Lint
-          run: pnpm lint
-
-        - name: Tests
-          run: pnpm test
-
-        - name: Build
-          run: pnpm build
+      - name: Build
+        run: pnpm build
