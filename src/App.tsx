@@ -13,6 +13,7 @@ import { Inadimplencia } from './pages/Inadimplencia'
 import { ReceitasMes } from './pages/ReceitasMes'
 import { PrevisaoOrcamentaria } from './pages/PrevisaoOrcamentaria'
 import { SaldoBancario } from './pages/SaldoBancario'
+import { FechamentoBalancete } from './pages/FechamentoBalancete'
 import { AuthScreen } from './pages/AuthScreen'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
@@ -141,6 +142,10 @@ function App() {
         {
           path: 'saldo-bancario',
           element: <SaldoBancario />,
+        },
+        {
+          path: 'fechamento-balancete',
+          element: <FechamentoBalancete />,
         },
         {
           path: '*',

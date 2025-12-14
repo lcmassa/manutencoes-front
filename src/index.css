@@ -140,28 +140,47 @@ body {
   opacity: 1 !important;
 }
 
-/* Estilizar labels que contêm check - destacar check verde */
-.grid-cols-\[64px_1fr\] > aside nav a[title*="✓"] {
+/* Estilizar páginas desenvolvidas - destacar check verde à esquerda */
+/* Páginas desenvolvidas identificadas pelo href (arquivos .tsx existentes) */
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/"],
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/mandatos"],
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/manutencoes"],
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/certificado-digital"],
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/assembleias"],
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/seguros"],
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/fluxo-caixa"],
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/previsao-orcamentaria"],
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/inadimplencia"],
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/receitas-mes"],
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/saldo-bancario"],
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/fechamento-balancete"] {
   position: relative;
-  padding-right: 2rem !important;
+  padding-left: 1.75rem !important;
 }
 
-/* Adicionar check verde visual no final do item */
-.grid-cols-\[64px_1fr\] > aside nav a[title*="✓"]::after {
+/* Adicionar check verde visual à esquerda (antes do ícone) */
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/"]::before,
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/mandatos"]::before,
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/manutencoes"]::before,
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/certificado-digital"]::before,
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/assembleias"]::before,
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/seguros"]::before,
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/fluxo-caixa"]::before,
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/previsao-orcamentaria"]::before,
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/inadimplencia"]::before,
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/receitas-mes"]::before,
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/saldo-bancario"]::before,
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/fechamento-balancete"]::before {
   content: '✓';
   position: absolute;
-  right: 0.75rem;
+  left: 0.5rem;
   top: 50%;
   transform: translateY(-50%);
   color: rgb(34 197 94);
   font-weight: bold;
-  font-size: 1rem;
+  font-size: 0.875rem;
   pointer-events: none;
   line-height: 1;
-}
-
-/* Garantir que o texto do label não sobreponha o check */
-.grid-cols-\[64px_1fr\] > aside nav a[title*="✓"] span.sr-only {
-  padding-right: 1.5rem;
+  z-index: 1;
 }
 

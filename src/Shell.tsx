@@ -71,6 +71,7 @@ const developedPages = new Set([
   'inadimplencia',
   'receitas-mes',
   'saldo-bancario',
+  'fechamento-balancete',
 ])
 
 // Itens do menu organizados por seção
@@ -87,6 +88,7 @@ const menuItemsData = [
   { id: 'inadimplencia', label: 'Inadimplência', path: '#/inadimplencia', icon: 'AlertCircle', section: 'acompanhar' },
   { id: 'receitas-mes', label: 'Receitas do Mês', path: '#/receitas-mes', icon: 'Wallet', section: 'acompanhar' },
   { id: 'saldo-bancario', label: 'Saldo Bancário', path: '#/saldo-bancario', icon: 'Wallet', section: 'acompanhar' },
+  { id: 'fechamento-balancete', label: 'Fechamento Balancete', path: '#/fechamento-balancete', icon: 'Receipt', section: 'acompanhar' },
   // Outros módulos
   { id: 'debito-automatico', label: 'Débito Automático', path: '#/debito-automatico', icon: 'CreditCard', section: 'outros' },
   { id: 'condominios', label: 'Condomínios', path: '#/condominios', icon: 'Building2', section: 'outros' },
@@ -159,9 +161,8 @@ export function Shell() {
     ]
     
     return allCoreItems.map(item => {
-      const isDeveloped = developedPages.has(item.id)
       return {
-        label: isDeveloped ? `${item.label} ✓` : item.label,
+        label: item.label,
         href: item.path,
         icon: iconMap[item.icon] || undefined,
       }
@@ -172,9 +173,8 @@ export function Shell() {
     const outrosItems = menuItemsData.filter(item => item.section === 'outros')
     
     return outrosItems.map(item => {
-      const isDeveloped = developedPages.has(item.id)
       return {
-        label: isDeveloped ? `${item.label} ✓` : item.label,
+        label: item.label,
         href: item.path,
         icon: iconMap[item.icon] || undefined,
       }
@@ -223,6 +223,19 @@ export function Shell() {
       extraMenu={extraMenuItems}
       themeTokens={themeTokens}
       request={requester}
+      topCenter={
+        <div className="flex items-center gap-3">
+          <img 
+            src="/logo-ab.png" 
+            alt="AB - Administração Condominial e Negócios Imobiliários" 
+            className="h-10 w-auto object-contain"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement
+              target.style.display = 'none'
+            }}
+          />
+        </div>
+      }
     >
       <Outlet />
     </AppShell>
