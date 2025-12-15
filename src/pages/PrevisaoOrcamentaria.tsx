@@ -796,6 +796,7 @@ export function PrevisaoOrcamentaria() {
   }, [planilhaLabels])
   const totalRefLabel = 'Total (Ref.)'
   const totalProjLabel = 'Total (Proj.)'
+  const mediaAnualLabel = 'Média Anual'
   const monthColumns = useMemo(() => {
     const cols: string[] = []
     monthPairs.forEach((pair) => {
@@ -818,8 +819,9 @@ export function PrevisaoOrcamentaria() {
       })
       cols.push(totalProjLabel)
     }
+    cols.push(mediaAnualLabel)
     return cols
-  }, [mostrarComparacaoRef, monthPairs, totalRefLabel, totalProjLabel])
+  }, [mostrarComparacaoRef, monthPairs, totalRefLabel, totalProjLabel, mediaAnualLabel])
 
   const normalizar = useCallback(
     (s?: string) => (s ? s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() : ''),
@@ -1025,11 +1027,14 @@ export function PrevisaoOrcamentaria() {
   const contasMaeAgrupadas = useMemo<ContaMaeDisplay[]>(() => {
     if (!planilhaRows.length) return []
 
-    const makeEmptyValues = () =>
-      monthColumns.reduce((acc, col) => {
+    const makeEmptyValues = () => {
+      const values = monthColumns.reduce((acc, col) => {
         acc[col] = 0
         return acc
       }, {} as Record<string, number>)
+      values[mediaAnualLabel] = 0
+      return values
+    }
 
     const mapa = new Map<string, ContaMaeDisplay>()
 
@@ -1073,6 +1078,7 @@ export function PrevisaoOrcamentaria() {
         (acc, pair) => acc + valoresLinha[pair.projLabel],
         0,
       )
+      valoresLinha[mediaAnualLabel] = valoresLinha[totalProjLabel] / 12
       mae.children.push({
         key: `${row.categoria}-item`,
         label: row.labelFormatada,
@@ -1084,6 +1090,11 @@ export function PrevisaoOrcamentaria() {
       })
     })
 
+    // Calcular média anual para cada conta-mãe
+    mapa.forEach((mae) => {
+      mae.valores[mediaAnualLabel] = (mae.valores[totalProjLabel] || 0) / 12
+    })
+
     return Array.from(mapa.values()).sort((a, b) => compareCodigoStrings(a.codigo, b.codigo))
   }, [
     planilhaRows,
@@ -1093,6 +1104,7 @@ export function PrevisaoOrcamentaria() {
     planoContasMap,
     totalRefLabel,
     totalProjLabel,
+    mediaAnualLabel,
     valoresEditados,
   ])
 
@@ -1111,8 +1123,9 @@ export function PrevisaoOrcamentaria() {
       acc[col] = contasMaeOrdinarias.reduce((sum, mae) => sum + (mae.valores[col] || 0), 0)
       return acc
     }, {} as Record<string, number>)
+    valores[mediaAnualLabel] = (valores[totalProjLabel] || 0) / 12
     return { categoria: 'TOTAL DO PERÍODO', valores }
-  }, [contasMaeOrdinarias, monthColumns])
+  }, [contasMaeOrdinarias, monthColumns, totalProjLabel, mediaAnualLabel])
 
   const totalResumoRef = planilhaTotalLinha?.valores?.[totalRefLabel] ?? 0
   const totalResumoProj = planilhaTotalLinha?.valores?.[totalProjLabel] ?? 0
@@ -1522,7 +1535,8 @@ export function PrevisaoOrcamentaria() {
                                   {colunasVisiveis.map((label) => {
                                     const valor = child.valores[label] || 0
                                     const ehTotal = label === totalRefLabel || label === totalProjLabel
-                                    const podeEditar = editandoTabela && !ehTotal
+                                    const ehMediaAnual = label === mediaAnualLabel
+                                    const podeEditar = editandoTabela && !ehTotal && !ehMediaAnual
                                     return (
                                       <td
                                         key={`${child.key}-${label}`}
