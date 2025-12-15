@@ -295,20 +295,17 @@ async function buscarInadimplenciasPorCondominio(
       // Se usar apenasResumoInad=1, retorna apenas resumo sem detalhes das unidades
       // NOTA: Removendo filtros restritivos (semAcordo, semProcesso, cobrancaDoTipo) 
       // para incluir TODAS as inadimplências, conforme o CSV mostra que existem
-      // IMPORTANTE: comDadosDaReceita=1 garante que a API retorne dados das receitas
-      // Mesmo condomínios com inadimplência devem ter receitas não recebidas
       const params = new URLSearchParams({
       comValoresAtualizados: '0',
       comValoresAtualizadosPorComposicao: '0', // Conforme documentação
       apenasResumoInad: '0', // 0 = dados detalhados, 1 = apenas resumo (sem detalhes)
       posicaoEm: dataAtualFormatada, // DD/MM/YYYY - data de referência para a posição
       idCondominio: idCondominio.trim(),
-      comDadosDaReceita: '1', // CRÍTICO: Garante que receitas sejam retornadas
+      comDadosDaReceita: '1',
       itensPorPagina: String(itensPorPagina),
       pagina: String(pagina)
       // Removidos semAcordo, semProcesso e cobrancaDoTipo para incluir todas as inadimplências
       // O CSV mostra que há unidades com processos e diferentes tipos de cobrança
-      // IMPORTANTE: Não usar filtros que excluam receitas não recebidas quando há inadimplência
     })
 
     const url = `/api/condominios/superlogica/inadimplencia/index?${params.toString()}`
@@ -457,11 +454,6 @@ async function buscarInadimplenciasPorCondominio(
       if (!dadosArray || dadosArray.length === 0) {
         if (pagina === 1) {
           logger.error(`[Inadimplencia] ❌ Nenhum dado encontrado na página ${pagina} do condomínio ${idCondominio}`)
-          logger.error(`[Inadimplencia] ❌ IMPORTANTE: Mesmo condomínios com inadimplência devem retornar receitas não recebidas`)
-          logger.error(`[Inadimplencia] ❌ Se a API não retorna dados, pode ser:`)
-          logger.error(`[Inadimplencia] ❌   1. O endpoint de inadimplência não retorna receitas quando há inadimplência`)
-          logger.error(`[Inadimplencia] ❌   2. Os parâmetros estão incorretos (verificar comDadosDaReceita=1)`)
-          logger.error(`[Inadimplencia] ❌   3. A estrutura da resposta mudou`)
           
           // Log detalhado da estrutura completa da resposta para debug
           const estruturaCompleta = data && typeof data === 'object' ? JSON.stringify(data, null, 2) : String(data)
@@ -519,7 +511,7 @@ async function buscarInadimplenciasPorCondominio(
 
         const inad = item.inad || item
         const idCondominioItem = inad.id_condominio_cond || inad.idCondominio || item.id_condominio_cond || item.idCondominio || idCondominio
-        let condominioNome = inad.st_fantasia_cond || inad.st_nome_cond || inad.nomeCondominio || inad.nomeFantasia || item.st_fantasia_cond || item.st_nome_cond || item.nomeCondominio || item.nomeFantasia || ''
+        const condominioNome = inad.st_fantasia_cond || inad.st_nome_cond || inad.nomeCondominio || inad.nomeFantasia || item.st_fantasia_cond || item.st_nome_cond || item.nomeCondominio || item.nomeFantasia || ''
 
         for (const rec of recebimentos) {
           const idUnidade = rec.id_unidade_uni || rec.idUnidade || inad.id_unidade_uni || inad.idUnidade || ''
@@ -564,22 +556,10 @@ async function buscarInadimplenciasPorCondominio(
           errorMessage,
           errorData: errorData ? JSON.stringify(errorData).substring(0, 1000) : 'N/A',
           dataAtualFormatada,
-          idCondominio,
-          companyId: companyId || 'null'
+          idCondominio
         })
         
-        // IMPORTANTE: Para condomínios específicos, lançar erro para mostrar ao usuário
-        // Para processamento em batch, retornar vazio para continuar com outros condomínios
-        if (isSingleCondominio && pagina === 1) {
-          // Se for busca de um único condomínio e erro na primeira página, lançar erro
-          // para que o usuário veja a mensagem de erro
-          const erroDetalhado = new Error(`Erro de validação (422) ao buscar inadimplências para o condomínio selecionado. ${errorMessage}`)
-          ;(erroDetalhado as any).response = error?.response
-          ;(erroDetalhado as any).status = 422
-          throw erroDetalhado
-        }
-        
-        // IMPORTANTE: Não lançar erro na primeira página para batch - isso faz o condomínio ser ignorado completamente
+        // IMPORTANTE: Não lançar erro na primeira página - isso faz o condomínio ser ignorado completamente
         // Em vez disso, logar o erro e retornar unidades já encontradas (ou vazio se primeira página)
         // Isso permite que outros condomínios continuem sendo processados
         if (pagina === 1) {
@@ -634,8 +614,6 @@ async function buscarInadimplenciasPorCondominio(
     totalRecebimentos += recebimentos.length
 
     // Filtros mais permissivos: incluir recebimentos que não estão claramente pagos/liquidados
-    // IMPORTANTE: Mesmo condomínios com inadimplência podem ter receitas não recebidas
-    // A lógica deve focar em identificar receitas que ainda não foram recebidas, independente de ter inadimplência
     const recebimentosEmAberto = recebimentos.filter((rec: any) => {
       // Verificar flag_liquidado - só excluir se explicitamente marcado como liquidado
       const flagLiquidado = rec.flag_liquidado ?? rec.flagLiquidado ?? rec.fl_liquidado_recb
@@ -656,40 +634,23 @@ async function buscarInadimplenciasPorCondominio(
         }
       }
 
-      // Verificar data de liquidação - só excluir se tiver data de liquidação válida
+      // Verificar data de liquidação - só excluir se tiver data de liquidação
       const dataLiquidacao = rec.dt_liquidacao_recb || rec.dataLiquidacao
       if (dataLiquidacao && dataLiquidacao.trim() !== '' && dataLiquidacao !== '0000-00-00' && dataLiquidacao !== '00/00/0000') {
-        // Verificar se a data de liquidação é válida (não é apenas um placeholder)
-        try {
-          const dataLiquidacaoDate = new Date(dataLiquidacao)
-          if (!isNaN(dataLiquidacaoDate.getTime()) && dataLiquidacaoDate.getFullYear() > 1900) {
-            logger.debug(`[Inadimplencia] Recebimento ${rec.id_recebimento_recb || 'N/A'} excluído: dataLiquidacao=${dataLiquidacao}`)
-            return false
-          }
-        } catch (e) {
-          // Data inválida - não excluir por isso
-        }
+        logger.debug(`[Inadimplencia] Recebimento ${rec.id_recebimento_recb || 'N/A'} excluído: dataLiquidacao=${dataLiquidacao}`)
+        return false
       }
       
       // Status: 0 = em aberto, 1 = pago, 2 = cancelado, 3 = estornado
-      // IMPORTANTE: Incluir recebimentos em aberto (status 0, 2, 3 ou não definido)
-      // Status 1 (pago) só excluir se TAMBÉM tiver flag_liquidado ou dataLiquidacao
-      // Isso permite incluir receitas não recebidas mesmo em condomínios com inadimplência
+      // Incluir apenas recebimentos em aberto (status 0, 2 ou não definido)
+      // Status 2 (cancelado) pode ser incluído se não tiver data de liquidação
       const status = rec.fl_status_recb ?? rec.status ?? 0
       if (status === 1) {
-        // Status 1 = pago - mas verificar se realmente está liquidado
-        // Se não tiver flag_liquidado nem dataLiquidacao, pode ser um erro de status
-        const temLiquidacaoConfirmada = (flagLiquidado !== undefined && flagLiquidado !== null) || 
-                                       (dataLiquidacao && dataLiquidacao.trim() !== '' && dataLiquidacao !== '0000-00-00' && dataLiquidacao !== '00/00/0000')
-        if (temLiquidacaoConfirmada) {
-          logger.debug(`[Inadimplencia] Recebimento ${rec.id_recebimento_recb || 'N/A'} excluído: status=1 (pago) com confirmação de liquidação`)
-          return false
-        } else {
-          // Status diz pago mas não tem confirmação - pode ser erro, incluir para análise
-          logger.warn(`[Inadimplencia] ⚠️ Recebimento ${rec.id_recebimento_recb || 'N/A'} tem status=1 mas sem confirmação de liquidação - incluindo para análise`)
-        }
+        // Status 1 = pago - excluir
+        logger.debug(`[Inadimplencia] Recebimento ${rec.id_recebimento_recb || 'N/A'} excluído: status=1 (pago)`)
+        return false
       }
-      // Status 2 (cancelado) e 3 (estornado) podem ser incluídos se não tiverem liquidação confirmada
+      // Status 3 (estornado) pode ser incluído se não tiver flag_liquidado ou dataLiquidacao
       
       const valorBruto = rec.vl_total_recb || rec.valorTotal || rec.vl_emitido_recb || rec.valorEmitido || 0
       const valor = parseValorMonetario(valorBruto)
@@ -836,38 +797,20 @@ async function buscarInadimplenciasPorCondominio(
     logger.error(`[Inadimplencia] ❌ Estatísticas: ${unidadesRejeitadasPorFiltro} rejeitadas por filtro, ${unidadesRejeitadasPorSaldo} rejeitadas por saldo=0`)
     logger.error(`[Inadimplencia] ❌ Total recebimentos: ${totalRecebimentos}, Recebimentos em aberto: ${totalRecebimentosEmAberto}`)
     logger.error(`[Inadimplencia] ❌ Verifique os logs acima para entender por que os recebimentos foram filtrados.`)
-    logger.error(`[Inadimplencia] ❌ IMPORTANTE: Mesmo condomínios com inadimplência devem ter receitas não recebidas.`)
-    logger.error(`[Inadimplencia] ❌ Se todos os recebimentos estão sendo filtrados, pode indicar que:`)
-    logger.error(`[Inadimplencia] ❌   1. Todos estão realmente pagos/liquidados (improvável se há inadimplência)`)
-    logger.error(`[Inadimplencia] ❌   2. Os campos de status/liquidação estão incorretos na API`)
-    logger.error(`[Inadimplencia] ❌   3. O endpoint de inadimplência não retorna receitas não recebidas quando há inadimplência`)
     
-    // Log detalhado de TODAS as unidades para debug (não apenas 3)
+    // Log detalhado de algumas unidades para debug
     let contador = 0
     for (const [idUnidade, recebimentos] of recebimentosPorUnidade.entries()) {
-      if (contador >= 10) break // Aumentar para 10 para mais informações
+      if (contador >= 3) break
       contador++
-      const recebimentosFiltrados = recebimentos.filter((rec: any) => {
-        const flagLiquidado = rec.flag_liquidado ?? rec.flagLiquidado ?? rec.fl_liquidado_recb
-        const dataLiquidacao = rec.dt_liquidacao_recb || rec.dataLiquidacao
-        const status = rec.fl_status_recb ?? rec.status ?? 0
-        const valorBruto = rec.vl_total_recb || rec.valorTotal || rec.vl_emitido_recb || rec.valorEmitido || 0
-        const valor = parseValorMonetario(valorBruto)
-        return !(flagLiquidado === true || flagLiquidado === 1 || flagLiquidado === '1' || flagLiquidado === 'true') &&
-               !(dataLiquidacao && dataLiquidacao.trim() !== '' && dataLiquidacao !== '0000-00-00' && dataLiquidacao !== '00/00/0000') &&
-               !(status === 1 && (flagLiquidado !== undefined || (dataLiquidacao && dataLiquidacao.trim() !== ''))) &&
-               valor > 0
-      })
       logger.error(`[Inadimplencia] Exemplo unidade ${idUnidade}:`, {
         totalRecebimentos: recebimentos.length,
-        recebimentosFiltrados: recebimentosFiltrados.length,
         primeiroRecebimento: recebimentos[0] ? {
           id: recebimentos[0].id_recebimento_recb || recebimentos[0].idRecebimento,
           flagLiquidado: recebimentos[0].flag_liquidado ?? recebimentos[0].flagLiquidado ?? recebimentos[0].fl_liquidado_recb,
           dataLiquidacao: recebimentos[0].dt_liquidacao_recb || recebimentos[0].dataLiquidacao,
           status: recebimentos[0].fl_status_recb ?? recebimentos[0].status,
-          valor: recebimentos[0].vl_total_recb || recebimentos[0].valorTotal || recebimentos[0].vl_emitido_recb || recebimentos[0].valoEmitido,
-          todasChaves: Object.keys(recebimentos[0]).slice(0, 20) // Mostrar primeiras 20 chaves para debug
+          valor: recebimentos[0].vl_total_recb || recebimentos[0].valorTotal || recebimentos[0].vl_emitido_recb || recebimentos[0].valoEmitido
         } : null
       })
     }
@@ -1004,24 +947,10 @@ export function Inadimplencia() {
         fetch('http://127.0.0.1:7242/ingest/f0428a8a-3429-4d2c-96c5-eee3af77a73c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Inadimplencia.tsx:902',message:'carregarCondominios useEffect - ERROR',data:{status:err?.response?.status,message:err?.message,errorData:err?.response?.data?JSON.stringify(err.response.data).substring(0,500):'N/A'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
         // #endregion
         console.error('[Inadimplencia] Erro ao carregar condomínios:', err)
-        let mensagemErroCondominios = err?.message || 'Erro desconhecido'
-        
-        if (err?.response?.status === 503) {
-          mensagemErroCondominios = 'Serviço temporariamente indisponível (503).\n\nO servidor pode estar sobrecarregado ou em manutenção.\n\nAções sugeridas:\n• Aguarde alguns instantes e tente novamente\n• Verifique se há manutenção programada\n• Se o problema persistir, entre em contato com o suporte'
-        } else if (err?.response?.status === 500) {
-          mensagemErroCondominios = 'Erro interno do servidor (500).\n\nO servidor encontrou um erro ao processar a requisição.\n\nAções sugeridas:\n• Aguarde alguns instantes e tente novamente\n• Se o problema persistir, entre em contato com o suporte'
-        } else if (err?.response?.status === 502 || err?.response?.status === 504) {
-          mensagemErroCondominios = 'Erro de gateway (502/504).\n\nO servidor pode estar temporariamente indisponível ou demorando para responder.\n\nAções sugeridas:\n• Aguarde alguns instantes e tente novamente\n• Verifique sua conexão com a internet\n• Se o problema persistir, entre em contato com o suporte'
-        } else if (err?.response?.status === 422) {
-          const errorData = err?.response?.data || {}
-          const errorMsg = errorData.msg || errorData.message || err?.message || 'Unprocessable Entity'
-          const errorDetails = errorData.errors || errorData.details || ''
-          mensagemErroCondominios = `HTTP ${err.response.status}: ${errorMsg}${errorDetails ? `\n\nDetalhes: ${JSON.stringify(errorDetails)}` : ''}`
-        } else if (err?.response?.status) {
-          mensagemErroCondominios = `HTTP ${err.response.status}: ${err?.response?.data?.msg || err?.response?.data?.message || err?.message || 'Erro desconhecido'}`
-        }
-        
-        setErro(`Erro ao carregar condomínios: ${mensagemErroCondominios}`)
+        const errorMsg = err?.response?.status === 422 
+          ? `Erro ao carregar condomínios: HTTP ${err.response.status}: ${err?.response?.data?.msg || err?.response?.data?.message || err?.message || 'Unprocessable Entity'}`
+          : `Erro ao carregar condomínios: ${err?.message || 'Erro desconhecido'}`
+        setErro(errorMsg)
         setCondominios([])
       }
     }
@@ -1111,15 +1040,7 @@ export function Inadimplencia() {
               // #region agent log
               fetch('http://127.0.0.1:7242/ingest/f0428a8a-3429-4d2c-96c5-eee3af77a73c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Inadimplencia.tsx:996',message:'Processing condominio - ERROR',data:{idCondominio:cond.idCondominio,nome:cond.nome||cond.nomeFantasia,status:e?.response?.status,message:e?.message,errorData:e?.response?.data?JSON.stringify(e.response.data).substring(0,300):'N/A'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
               // #endregion
-              
-              // Se for erro 503, 502, 504 ou 500, pode ser problema temporário do servidor
-              const status = e?.response?.status
-              if (status === 503 || status === 502 || status === 504 || status === 500) {
-                logger.warn(`[Inadimplencia] ⚠️ Erro ${status} (servidor indisponível) em condomínio ${cond.idCondominio} (${cond.nome || cond.nomeFantasia}). Continuando processamento...`)
-              } else {
-                logger.warn(`[Inadimplencia] Erro em condomínio ${cond.idCondominio} (${cond.nome || cond.nomeFantasia}):`, e?.message || e)
-              }
-              
+              logger.warn(`[Inadimplencia] Erro em condomínio ${cond.idCondominio} (${cond.nome || cond.nomeFantasia}):`, e?.message || e)
               return [] as UnidadeInadimplente[]
             }
           })
@@ -1232,12 +1153,6 @@ export function Inadimplencia() {
         }
       } else if (error?.response?.status === 401) {
         mensagemErro = 'Erro de autenticação. Token expirado ou inválido. Execute ./iap auth para renovar.'
-      } else if (error?.response?.status === 503) {
-        mensagemErro = 'Serviço temporariamente indisponível (503).\n\nO servidor pode estar sobrecarregado ou em manutenção.\n\nAções sugeridas:\n• Aguarde alguns instantes e tente novamente\n• Verifique se há manutenção programada\n• Se o problema persistir, entre em contato com o suporte'
-      } else if (error?.response?.status === 500) {
-        mensagemErro = 'Erro interno do servidor (500).\n\nO servidor encontrou um erro ao processar a requisição.\n\nAções sugeridas:\n• Aguarde alguns instantes e tente novamente\n• Se o problema persistir, entre em contato com o suporte'
-      } else if (error?.response?.status === 502 || error?.response?.status === 504) {
-        mensagemErro = 'Erro de gateway (502/504).\n\nO servidor pode estar temporariamente indisponível ou demorando para responder.\n\nAções sugeridas:\n• Aguarde alguns instantes e tente novamente\n• Verifique sua conexão com a internet\n• Se o problema persistir, entre em contato com o suporte'
       } else if (error?.response?.status) {
         mensagemErro = `Erro HTTP ${error.response.status}: ${mensagemErro}`
       }
@@ -1338,7 +1253,7 @@ export function Inadimplencia() {
     <div className="p-2 space-y-2">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <h1 className="text-sm font-bold text-gray-900">Inadimplências</h1>
+          <h1 className="text-sm font-bold text-gray-900">Receitas Não Recebidas</h1>
           <p className="text-xs text-gray-600">Relatório 001B - Relação por condomínio com total por unidade</p>
         </div>
         <div className="flex items-center gap-2">
@@ -1397,8 +1312,7 @@ export function Inadimplencia() {
                     semAcordo: true,
                     semProcesso: false,
                     render: 'pdf',
-                    getId: true,
-                    colunas: 2 // Layout em 2 colunas para reduzir número de páginas
+                    getId: true
                   })
 
                   if (resultado.idImpressao) {
@@ -1484,31 +1398,31 @@ export function Inadimplencia() {
 
       {resumosCondominios.length > 0 && (
         <>
-          <div className="mb-1.5 grid grid-cols-1 md:grid-cols-3 gap-1.5">
-            <div className="bg-white rounded border border-gray-200 p-1.5">
+          <div className="mb-2 grid grid-cols-1 md:grid-cols-3 gap-2">
+            <div className="bg-white rounded border border-gray-200 p-2">
               <div className="flex items-center gap-1 mb-0.5">
-                <Building2 className="w-2.5 h-2.5 text-blue-600" />
-                <span className="text-[10px] text-gray-600">Condomínios</span>
+                <Building2 className="w-3 h-3 text-blue-600" />
+                <span className="text-xs text-gray-600">Condomínios</span>
               </div>
-              <p className="text-base font-bold text-gray-900">{resumosCondominios.length}</p>
+              <p className="text-lg font-bold text-gray-900">{resumosCondominios.length}</p>
             </div>
-            <div className="bg-white rounded border border-gray-200 p-1.5">
+            <div className="bg-white rounded border border-gray-200 p-2">
               <div className="flex items-center gap-1 mb-0.5">
-                <Home className="w-2.5 h-2.5 text-green-600" />
-                <span className="text-[10px] text-gray-600">Unidades com Receitas Não Recebidas</span>
+                <Home className="w-3 h-3 text-green-600" />
+                <span className="text-xs text-gray-600">Unidades com Receitas Não Recebidas</span>
               </div>
-              <p className="text-base font-bold text-gray-900">{totalUnidadesGeral}</p>
+              <p className="text-lg font-bold text-gray-900">{totalUnidadesGeral}</p>
             </div>
-            <div className="bg-white rounded border border-gray-200 p-1.5">
+            <div className="bg-white rounded border border-gray-200 p-2">
               <div className="flex items-center gap-1 mb-0.5">
-                <DollarSign className="w-2.5 h-2.5 text-red-600" />
-                <span className="text-[10px] text-gray-600">Total Não Recebido</span>
+                <DollarSign className="w-3 h-3 text-red-600" />
+                <span className="text-xs text-gray-600">Total Não Recebido</span>
               </div>
-              <p className="text-base font-bold text-red-600">{formatarValor(totalGeral)}</p>
+              <p className="text-lg font-bold text-red-600">{formatarValor(totalGeral)}</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+          <div className="space-y-2">
             {resumosCondominios.map((resumo) => (
               <div key={resumo.idCondominio} className="bg-white rounded border border-gray-200 overflow-hidden">
                 {/* Cabeçalho do Condomínio */}
@@ -1532,43 +1446,62 @@ export function Inadimplencia() {
 
                 {/* Tabela de Unidades */}
                 <div className="overflow-x-auto">
-                  <table className="w-full text-[11px]">
+                  <table className="w-full text-xs" style={{ fontSize: '10px' }}>
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>
-                        <th className="px-1.5 py-1 text-left font-semibold text-gray-700">Unidade</th>
-                        <th className="px-1.5 py-1 text-center font-semibold text-gray-700">Qtd. Receitas</th>
-                        <th className="px-1.5 py-1 text-right font-semibold text-gray-700">Total Não Recebido</th>
+                        <th className="px-1.5 py-0.5 text-left font-semibold text-gray-700 text-[10px]">Unidade</th>
+                        <th className="px-1.5 py-0.5 text-left font-semibold text-gray-700 text-[10px]">Proprietário</th>
+                        <th className="px-1.5 py-0.5 text-center font-semibold text-gray-700 text-[10px]">Qtd. Receitas</th>
+                        <th className="px-1.5 py-0.5 text-center font-semibold text-gray-700 text-[10px]">Dias em Atraso</th>
+                        <th className="px-1.5 py-0.5 text-right font-semibold text-gray-700 text-[10px]">Total Não Recebido</th>
                         {resumo.unidades.some(u => u.processo) && (
-                          <th className="px-1.5 py-1 text-center font-semibold text-gray-700">Processo</th>
+                          <th className="px-1.5 py-0.5 text-center font-semibold text-gray-700 text-[10px]">Processo</th>
                         )}
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-gray-100" style={{ lineHeight: '1.2' }}>
                       {resumo.unidades.map((unidade, index) => (
                         <tr 
                           key={`${unidade.idCondominio}-${unidade.unidade}-${index}`} 
-                          className="hover:bg-gray-50 transition-colors border-b border-gray-300"
+                          className="hover:bg-gray-50 transition-colors"
                         >
                           <td className="px-1.5 py-0.5">
                             <div className="flex items-center gap-1">
                               <Home className="w-2.5 h-2.5 text-gray-400 flex-shrink-0" />
-                              <span className="font-medium text-gray-900">{unidade.unidade || 'N/A'}</span>
+                              <span className="font-medium text-gray-900 text-[10px]">{unidade.unidade || 'N/A'}</span>
                             </div>
                           </td>
+                          <td className="px-1.5 py-0.5">
+                            <span className="text-gray-700 truncate block max-w-[150px] text-[10px]">
+                              {unidade.proprietario || '-'}
+                            </span>
+                          </td>
                           <td className="px-1.5 py-0.5 text-center">
-                            <span className="text-gray-700 font-medium">
+                            <span className="text-gray-700 font-medium text-[10px]">
                               {unidade.quantidadeCobrancas}
                             </span>
                           </td>
+                          <td className="px-1.5 py-0.5 text-center">
+                            {unidade.diasAtraso > 0 ? (
+                              <span className="text-red-600 font-semibold text-[10px]">
+                                {unidade.diasAtraso} {unidade.diasAtraso === 1 ? 'dia' : 'dias'}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400 text-[10px]">-</span>
+                            )}
+                          </td>
                           <td className="px-1.5 py-0.5 text-right">
-                            <span className="font-bold text-gray-900">{formatarValor(unidade.saldo)}</span>
+                            <span className="font-bold text-gray-900 text-[10px]">{formatarValor(unidade.saldo)}</span>
+                            {unidade.confidence !== undefined && unidade.confidence < 0.95 && (
+                              <p className="text-[8px] text-gray-400 mt-0">conf: {(unidade.confidence * 100).toFixed(0)}%</p>
+                            )}
                           </td>
                           {resumo.unidades.some(u => u.processo) && (
                             <td className="px-1.5 py-0.5 text-center">
                               {unidade.processo ? (
                                 <span className="text-[10px] text-orange-600 font-medium">{unidade.processo}</span>
                               ) : (
-                                <span className="text-gray-300">-</span>
+                                <span className="text-gray-300 text-[10px]">-</span>
                               )}
                             </td>
                           )}
@@ -1578,10 +1511,10 @@ export function Inadimplencia() {
                     {/* Rodapé com subtotal */}
                     <tfoot className="bg-gray-50 border-t-2 border-gray-300">
                       <tr>
-                        <td colSpan={resumo.unidades.some(u => u.processo) ? 3 : 2} className="px-1.5 py-1 text-right font-semibold text-gray-700">
+                        <td colSpan={resumo.unidades.some(u => u.processo) ? 5 : 4} className="px-1.5 py-0.5 text-right font-semibold text-gray-700 text-[10px]">
                           Subtotal ({resumo.totalUnidades} {resumo.totalUnidades === 1 ? 'unidade' : 'unidades'}):
                         </td>
-                        <td className="px-1.5 py-1 text-right">
+                        <td className="px-1.5 py-0.5 text-right">
                           <span className="font-bold text-red-600 text-xs">{formatarValor(resumo.totalSaldo)}</span>
                         </td>
                         {resumo.unidades.some(u => u.processo) && <td></td>}

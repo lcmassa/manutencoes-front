@@ -69,7 +69,6 @@ const developedPages = new Set([
   'fluxo-caixa',
   'previsao-orcamentaria',
   'inadimplencia',
-  'receitas-mes',
   'saldo-bancario',
   'fechamento-balancete',
 ])
@@ -86,7 +85,6 @@ const menuItemsData = [
   // Seção ACOMPANHAR
   { id: 'fluxo-caixa', label: 'Fluxo de Caixa', path: '#/fluxo-caixa', icon: 'DollarSign', section: 'acompanhar' },
   { id: 'inadimplencia', label: 'Inadimplência', path: '#/inadimplencia', icon: 'AlertCircle', section: 'acompanhar' },
-  { id: 'receitas-mes', label: 'Receitas do Mês', path: '#/receitas-mes', icon: 'Wallet', section: 'acompanhar' },
   { id: 'saldo-bancario', label: 'Saldo Bancário', path: '#/saldo-bancario', icon: 'Wallet', section: 'acompanhar' },
   { id: 'fechamento-balancete', label: 'Fechamento Balancete', path: '#/fechamento-balancete', icon: 'Receipt', section: 'acompanhar' },
   // Outros módulos
@@ -161,8 +159,9 @@ export function Shell() {
     ]
     
     return allCoreItems.map(item => {
+      const isDeveloped = developedPages.has(item.id)
       return {
-        label: item.label,
+        label: isDeveloped ? `${item.label} ✓` : item.label,
         href: item.path,
         icon: iconMap[item.icon] || undefined,
       }
@@ -173,8 +172,9 @@ export function Shell() {
     const outrosItems = menuItemsData.filter(item => item.section === 'outros')
     
     return outrosItems.map(item => {
+      const isDeveloped = developedPages.has(item.id)
       return {
-        label: item.label,
+        label: isDeveloped ? `${item.label} ✓` : item.label,
         href: item.path,
         icon: iconMap[item.icon] || undefined,
       }

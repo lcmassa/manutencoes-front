@@ -174,8 +174,8 @@ function tentarConstruirData(valor: string | Date | null | undefined): Date | nu
 
   const barrasMatch = somenteData.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/)
   if (barrasMatch) {
-    let parte1 = Number(barrasMatch[1])
-    let parte2 = Number(barrasMatch[2])
+    const parte1 = Number(barrasMatch[1])
+    const parte2 = Number(barrasMatch[2])
     const ano = Number(barrasMatch[3].length === 2 ? `20${barrasMatch[3]}` : barrasMatch[3])
     if (!Number.isFinite(parte1) || !Number.isFinite(parte2) || !Number.isFinite(ano)) return null
     let mes = parte1
@@ -967,7 +967,7 @@ export function PrevisaoOrcamentaria() {
         mapa.set(codigoMae, descricao ? `${codigoMae} - ${descricao}` : codigoMae)
       }
     })
-    let lista = Array.from(mapa.entries())
+    const lista = Array.from(mapa.entries())
       .map(([codigo, label]) => ({ codigo, label }))
       .filter((c) => !isContaMaeExtraordinaria(c.codigo, c.label))
       .sort((a, b) => compareCodigoStrings(a.codigo, b.codigo))
@@ -1212,23 +1212,18 @@ export function PrevisaoOrcamentaria() {
               label: 'Média (R$)',
               data: valores,
               backgroundColor: colors,
-              borderWidth: 2,
-              borderColor: '#ffffff',
+              borderWidth: 1,
             },
           ],
         },
         options: {
           plugins: {
-            legend: { 
-              display: false // Ocultar legenda, pois temos os símbolos nas colunas laterais
-            },
+            legend: { position: 'top' },
             tooltip: {
               callbacks: {
                 label: (ctx) => {
                   const v = ctx.parsed as number
-                  const total = valores.reduce((acc, val) => acc + val, 0)
-                  const percentual = total > 0 ? ((v / total) * 100).toFixed(2) : '0.00'
-                  return `${ctx.label}: ${formatCurrency(v)} (${percentual}%)`
+                  return `${ctx.label}: ${formatCurrency(v)}`
                 },
               },
             },
@@ -1906,7 +1901,7 @@ export function PrevisaoOrcamentaria() {
       {mostrarModalGrafico && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMostrarModalGrafico(false)} />
-          <div className="relative z-10 w-full max-w-6xl bg-white rounded-lg shadow-2xl border border-gray-200 p-0 max-h-[90vh] flex flex-col overflow-hidden">
+          <div className="relative z-10 w-full max-w-4xl bg-white rounded-lg shadow-2xl border border-gray-200 p-0 max-h-[90vh] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between gap-4 px-6 py-4 border-b bg-gray-50">
               <div>
                 <h3 className="text-base font-semibold text-gray-900">Gráfico de Pizza - Média das Contas-mãe</h3>
@@ -1929,97 +1924,43 @@ export function PrevisaoOrcamentaria() {
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-3 gap-4">
-                  {/* Coluna Esquerda: Símbolos e Percentuais */}
-                  <div className="space-y-2">
-                    <div className="font-semibold text-sm text-gray-800 mb-3 text-center">Despesas</div>
-                    <div className="space-y-1.5 max-h-[450px] overflow-y-auto pr-2">
-                      {graficoIndicesData.labels.map((label, index) => {
-                        const valor = graficoIndicesData.valores[index]
-                        const total = graficoIndicesData.valores.reduce((acc, v) => acc + v, 0)
-                        const percentual = total > 0 ? (valor / total) * 100 : 0
-                        const colors = graficoIndicesData.labels.map((_, i) => {
-                          const base = (i * 37) % 360
-                          return `hsl(${base} 70% 55%)`
-                        })
-                        const color = colors[index]
-                        
-                        return (
-                          <div 
-                            key={`left-${index}`} 
-                            className="flex items-center gap-2 p-2 border border-gray-200 rounded hover:bg-gray-50 transition-colors"
-                          >
-                            <div 
-                              className="w-5 h-5 rounded-full flex-shrink-0 border-2 border-white shadow-sm" 
-                              style={{ backgroundColor: color }}
-                              title={label}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs font-medium text-gray-900 truncate" title={label}>
-                                {label}
-                              </div>
-                              <div className="text-xs font-semibold text-blue-600 tabular-nums">
-                                {percentual.toFixed(2)}%
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
+                <div className="space-y-6">
+                  <div className="border border-gray-100 rounded p-4">
+                    <div className="h-[400px] flex items-center justify-center">
+                      <canvas ref={graficoCanvasRef} />
                     </div>
                   </div>
-
-                  {/* Coluna Meio: Gráfico */}
-                  <div className="flex flex-col items-center justify-center">
-                    <div className="font-semibold text-sm text-gray-800 mb-3">Gráfico de Pizza</div>
-                    <div className="border border-gray-100 rounded p-3 bg-white w-full shadow-sm">
-                      <div className="h-[380px] flex items-center justify-center">
-                        <canvas ref={graficoCanvasRef} />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Coluna Direita: Valores */}
-                  <div className="space-y-2">
-                    <div className="font-semibold text-sm text-gray-800 mb-3 text-center">Valores</div>
-                    <div className="space-y-1.5 max-h-[450px] overflow-y-auto pr-2">
-                      {graficoIndicesData.labels.map((label, index) => {
-                        const valor = graficoIndicesData.valores[index]
-                        const colors = graficoIndicesData.labels.map((_, i) => {
-                          const base = (i * 37) % 360
-                          return `hsl(${base} 70% 55%)`
-                        })
-                        const color = colors[index]
-                        
-                        return (
-                          <div 
-                            key={`right-${index}`} 
-                            className="flex items-center gap-2 p-2 border border-gray-200 rounded hover:bg-gray-50 transition-colors"
-                          >
-                            <div 
-                              className="w-5 h-5 rounded-full flex-shrink-0 border-2 border-white shadow-sm" 
-                              style={{ backgroundColor: color }}
-                              title={label}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs font-medium text-gray-900 truncate" title={label}>
-                                {label}
-                              </div>
-                              <div className="text-xs font-semibold text-gray-900 tabular-nums">
-                                {formatCurrency(valor)}
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                    {/* Total */}
-                    <div className="mt-4 pt-3 border-t-2 border-gray-300">
-                      <div className="flex items-center justify-between p-2.5 bg-gray-50 rounded border border-gray-200">
-                        <span className="text-sm font-bold text-gray-800">Total</span>
-                        <span className="text-sm font-bold text-gray-900 tabular-nums">
-                          {formatCurrency(graficoIndicesData.valores.reduce((acc, v) => acc + v, 0))}
-                        </span>
-                      </div>
+                  
+                  <div className="border-t border-gray-200 pt-4">
+                    <div className="font-semibold text-sm text-gray-800 mb-3">Média das contas-mãe</div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-gray-300">
+                            <th className="text-left py-2 px-3 font-semibold text-gray-700">Conta</th>
+                            <th className="text-right py-2 px-3 font-semibold text-gray-700">Média Mensal</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {graficoIndicesData.labels.map((label, index) => {
+                            const valor = graficoIndicesData.valores[index]
+                            return (
+                              <tr key={`modal-media-${index}`} className="border-b border-gray-100 hover:bg-gray-50">
+                                <td className="py-2 px-3 text-gray-800">{label}</td>
+                                <td className="py-2 px-3 text-right font-medium text-gray-900 tabular-nums">{formatCurrency(valor)}</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-gray-50 border-t-2 border-gray-300">
+                            <td className="py-2 px-3 font-semibold text-gray-800">Total</td>
+                            <td className="py-2 px-3 text-right font-bold text-gray-900 tabular-nums">
+                              {formatCurrency(graficoIndicesData.valores.reduce((acc, v) => acc + v, 0))}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
                     </div>
                   </div>
                 </div>

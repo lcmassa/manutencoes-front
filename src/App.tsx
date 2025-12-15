@@ -10,7 +10,6 @@ import { Assembleias } from './pages/Assembleias'
 import { Seguros } from './pages/Seguros'
 import { FluxoCaixa } from './pages/FluxoCaixa'
 import { Inadimplencia } from './pages/Inadimplencia'
-import { ReceitasMes } from './pages/ReceitasMes'
 import { PrevisaoOrcamentaria } from './pages/PrevisaoOrcamentaria'
 import { SaldoBancario } from './pages/SaldoBancario'
 import { FechamentoBalancete } from './pages/FechamentoBalancete'
@@ -134,10 +133,6 @@ function App() {
         {
           path: 'inadimplencia',
           element: <Inadimplencia />,
-        },
-        {
-          path: 'receitas-mes',
-          element: <ReceitasMes />,
         },
         {
           path: 'saldo-bancario',
