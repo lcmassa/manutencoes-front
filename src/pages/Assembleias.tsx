@@ -138,7 +138,23 @@ export function Assembleias() {
             // #region agent log
             fetch('http://127.0.0.1:7242/ingest/f0428a8a-3429-4d2c-96c5-eee3af77a73c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Assembleias.tsx:131',message:'Request condominios - BEFORE',data:{url:urlCondominios,pagina:paginaCondominios,token:token?token.substring(0,20)+'...':'null',companyId:companyId||localStorage.getItem('x-company-id')||'null'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
             // #endregion
-            const responseCondominios = await api.get<any>(urlCondominios)
+            
+            // Verificar token e company-id antes de fazer a requisição
+            if (!token) {
+              throw new Error('Token não encontrado. Execute: ./iap auth')
+            }
+            
+            const currentCompanyId = companyId || localStorage.getItem('x-company-id')
+            if (!currentCompanyId) {
+              console.warn('[Assembleias] ⚠️ Company ID não encontrado')
+            }
+            
+            const responseCondominios = await api.get<any>(urlCondominios, {
+              headers: {
+                'x-company-id': currentCompanyId || '',
+                'company-id': currentCompanyId || '',
+              }
+            })
             
             const dataCondominios = responseCondominios.data
             // #region agent log
@@ -180,6 +196,37 @@ export function Assembleias() {
             // #region agent log
             fetch('http://127.0.0.1:7242/ingest/f0428a8a-3429-4d2c-96c5-eee3af77a73c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Assembleias.tsx:167',message:'Request condominios - ERROR',data:{status:err?.response?.status,statusText:err?.response?.statusText,message:err?.message,errorData:err?.response?.data?JSON.stringify(err.response.data).substring(0,500):'N/A',url:urlCondominios,pagina:paginaCondominios},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
             // #endregion
+            
+            // Tratar erro 422 especificamente
+            if (err?.response?.status === 422) {
+              const errorData = err?.response?.data || {}
+              const errorMsg = errorData.msg || errorData.message || 'Unprocessable Entity'
+              console.error('[Assembleias] ❌ Erro 422 ao buscar condomínios:', {
+                url: urlCondominios,
+                pagina: paginaCondominios,
+                errorMsg,
+                errorData: JSON.stringify(errorData).substring(0, 500),
+                token: token ? `${token.substring(0, 20)}...` : 'NÃO PRESENTE',
+                companyId: companyId || localStorage.getItem('x-company-id') || 'NÃO PRESENTE',
+              })
+              
+              // Se for a primeira página, lançar erro para mostrar ao usuário
+              if (paginaCondominios === 1) {
+                throw new Error(
+                  `Erro ao carregar condomínios: HTTP 422 - ${errorMsg}\n\n` +
+                  `Verifique se:\n` +
+                  `• O token está válido (execute: ./iap auth)\n` +
+                  `• O company-id está configurado corretamente\n` +
+                  `• Os parâmetros da requisição estão corretos\n\n` +
+                  `Detalhes no console do navegador (F12).`
+                )
+              }
+              
+              // Se não for a primeira página, apenas parar a busca
+              temMaisCondominios = false
+              break
+            }
+            
             if (err?.message === 'SESSION_REQUIRED_SUPERLOGICA') {
               setErro(
                 'Erro ao carregar condomínios:\n\n' +
@@ -215,9 +262,21 @@ export function Assembleias() {
         // #region agent log
         fetch('http://127.0.0.1:7242/ingest/f0428a8a-3429-4d2c-96c5-eee3af77a73c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Assembleias.tsx:199',message:'Outer catch - condominios error',data:{status:err?.response?.status,message:err?.message,errorData:err?.response?.data?JSON.stringify(err.response.data).substring(0,500):'N/A'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
         // #endregion
-        const errorMsg = err?.response?.status === 422 
-          ? `Erro ao carregar condomínios: HTTP ${err.response.status}: ${err?.response?.data?.msg || err?.response?.data?.message || err?.message || 'Unprocessable Entity'}`
-          : `Erro ao buscar condomínios: ${err?.message || 'Erro desconhecido'}`
+        let errorMsg = ''
+        if (err?.response?.status === 422) {
+          const errorData = err?.response?.data || {}
+          const apiMsg = errorData.msg || errorData.message || 'Unprocessable Entity'
+          errorMsg = `Erro ao carregar condomínios: HTTP 422 - ${apiMsg}\n\n` +
+            `Verifique se:\n` +
+            `• O token está válido (execute: ./iap auth)\n` +
+            `• O company-id está configurado corretamente\n` +
+            `• Os parâmetros da requisição estão corretos\n\n` +
+            `Detalhes no console do navegador (F12).`
+        } else if (err?.message?.includes('Token não encontrado')) {
+          errorMsg = `Erro: Token não encontrado.\n\nExecute: ./iap auth`
+        } else {
+          errorMsg = `Erro ao buscar condomínios: ${err?.message || 'Erro desconhecido'}`
+        }
         setErro(errorMsg)
         setLoading(false)
         loadingRef.current = false

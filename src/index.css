@@ -25,6 +25,18 @@ body {
   padding-top: 0 !important;
 }
 
+/* Adicionar versão acima do cabeçalho do menu */
+.grid-cols-\[64px_1fr\] > aside::before {
+  content: 'v-01.1';
+  display: block;
+  text-align: center;
+  font-size: 0.625rem; /* 10px - letras pequenas */
+  color: rgb(148 163 184); /* Cor cinza claro */
+  padding: 0.5rem 0.5rem 0.25rem 0.5rem;
+  letter-spacing: 0.05em;
+  font-weight: 400;
+}
+
 /* Substituir o botão de trocar app pelo logotipo da Superlógica */
 .grid-cols-\[64px_1fr\] > aside > button:first-of-type {
   width: 100% !important;
@@ -122,19 +134,156 @@ body {
   gap: 0.75rem;
   border-radius: 0.375rem;
   position: relative !important;
+  /* Não resetar border-bottom aqui - deixar para os seletores específicos */
 }
 
 /* Divisores no menu - após Dashboard e após Fechamento Balancete */
-.grid-cols-\[64px_1fr\] > aside nav a[href="#/"] {
-  border-bottom: 1px solid rgb(51 65 85) !important;
-  margin-bottom: 0.5rem !important;
+/* Usar múltiplas abordagens para garantir visibilidade: border-bottom, box-shadow e outline */
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/"],
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/"]:first-of-type,
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/"]:nth-of-type(1),
+aside nav a[href="#/"],
+aside nav a[href="#/"]:first-of-type,
+aside nav a[href="#/"]:nth-of-type(1),
+nav a[href="#/"],
+nav a[href="#/"]:first-of-type,
+nav a[href="#/"]:nth-of-type(1) {
+  border-bottom: 5px solid #FFD700 !important; /* Amarelo forte - muito espesso */
+  border-bottom-width: 5px !important;
+  margin-bottom: 1rem !important;
   padding-bottom: 0.75rem !important;
+  border-radius: 0 !important;
+  box-shadow: 0 5px 0 -1px #FFD700, 0 6px 0 0 #FFD700 !important; /* Linha dupla para garantir visibilidade */
+  position: relative !important;
+  z-index: 1 !important;
 }
 
-.grid-cols-\[64px_1fr\] > aside nav a[href="#/fechamento-balancete"] {
-  border-bottom: 1px solid rgb(51 65 85) !important;
-  margin-bottom: 0.5rem !important;
+/* Adicionar linha separadora usando ::before no próximo elemento */
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/"] + a::before,
+aside nav a[href="#/"] + a::before,
+nav a[href="#/"] + a::before {
+  content: '' !important;
+  display: block !important;
+  position: absolute !important;
+  top: -1rem !important;
+  left: 0 !important;
+  right: 0 !important;
+  height: 5px !important;
+  background-color: #FFD700 !important;
+  z-index: 5 !important;
+}
+
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/fechamento-balancete"],
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/fechamento-balancete"]:last-of-type,
+aside nav a[href="#/fechamento-balancete"],
+aside nav a[href="#/fechamento-balancete"]:last-of-type,
+nav a[href="#/fechamento-balancete"],
+nav a[href="#/fechamento-balancete"]:last-of-type {
+  border-bottom: 5px solid #FFD700 !important; /* Amarelo forte - muito espesso */
+  border-bottom-width: 5px !important;
+  margin-bottom: 1rem !important;
   padding-bottom: 0.75rem !important;
+  border-radius: 0 !important;
+  box-shadow: 0 5px 0 -1px #FFD700, 0 6px 0 0 #FFD700 !important; /* Linha dupla para garantir visibilidade */
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+/* Adicionar linha separadora usando ::before no próximo elemento */
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/fechamento-balancete"] + a::before,
+aside nav a[href="#/fechamento-balancete"] + a::before,
+nav a[href="#/fechamento-balancete"] + a::before {
+  content: '' !important;
+  display: block !important;
+  position: absolute !important;
+  top: -1rem !important;
+  left: 0 !important;
+  right: 0 !important;
+  height: 5px !important;
+  background-color: #FFD700 !important;
+  z-index: 5 !important;
+}
+
+/* Desabilitar itens do menu abaixo de Fechamento Balancete (extraMenu) */
+/* Usar seletores mais genéricos e específicos para garantir que sejam desabilitados */
+/* IMPORTANTE: Estes são os itens da seção "outros" que ainda não têm função */
+aside nav a[href="#/debito-automatico"],
+aside nav a[href="#/condominios"],
+aside nav a[href="#/moradores"],
+aside nav a[href="#/reunioes"],
+aside nav a[href="#/documentos"],
+aside nav a[href="#/ocorrencias"],
+aside nav a[href="#/boletos"],
+aside nav a[href="#/relatorios"],
+aside nav a[href="#/comunicados"],
+aside nav a[href="#/notificacoes"],
+aside nav a[href="#/auditoria"],
+aside nav a[href="#/usuarios"],
+aside nav a[href="#/configuracoes"],
+aside a[href="#/debito-automatico"],
+aside a[href="#/condominios"],
+aside a[href="#/moradores"],
+aside a[href="#/reunioes"],
+aside a[href="#/documentos"],
+aside a[href="#/ocorrencias"],
+aside a[href="#/boletos"],
+aside a[href="#/relatorios"],
+aside a[href="#/comunicados"],
+aside a[href="#/notificacoes"],
+aside a[href="#/auditoria"],
+aside a[href="#/usuarios"],
+aside a[href="#/configuracoes"],
+nav a[href="#/debito-automatico"],
+nav a[href="#/condominios"],
+nav a[href="#/moradores"],
+nav a[href="#/reunioes"],
+nav a[href="#/documentos"],
+nav a[href="#/ocorrencias"],
+nav a[href="#/boletos"],
+nav a[href="#/relatorios"],
+nav a[href="#/comunicados"],
+nav a[href="#/notificacoes"],
+nav a[href="#/auditoria"],
+nav a[href="#/usuarios"],
+nav a[href="#/configuracoes"],
+a[href="#/debito-automatico"],
+a[href="#/condominios"],
+a[href="#/moradores"],
+a[href="#/reunioes"],
+a[href="#/documentos"],
+a[href="#/ocorrencias"],
+a[href="#/boletos"],
+a[href="#/relatorios"],
+a[href="#/comunicados"],
+a[href="#/notificacoes"],
+a[href="#/auditoria"],
+a[href="#/usuarios"],
+a[href="#/configuracoes"] {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  filter: grayscale(100%) !important; /* Tornar cinza para indicar desabilitado */
+}
+
+/* Estilizar separadores adicionados via JavaScript */
+.menu-separator {
+  height: 5px !important;
+  background-color: #FFD700 !important;
+  margin: 0.75rem 0 !important;
+  width: 100% !important;
+  border-radius: 0 !important;
+  display: block !important;
+}
+
+/* Prevenir navegação via JavaScript também */
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/debito-automatico"]:hover,
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/condominios"]:hover,
+.grid-cols-\[64px_1fr\] > aside nav a[href="#/moradores"]:hover,
+aside nav a[href="#/debito-automatico"]:hover,
+aside nav a[href="#/condominios"]:hover,
+aside nav a[href="#/moradores"]:hover {
+  background-color: transparent !important;
+  opacity: 0.4 !important;
 }
 
 .grid-cols-\[64px_1fr\] > aside nav a span.sr-only {
