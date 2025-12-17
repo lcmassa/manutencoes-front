@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../lib/api'
+import * as ManutencoesDB from '../lib/manutencoes-db'
 import { 
   Plus, 
   Edit2, 
@@ -22,7 +23,9 @@ import {
   Filter,
   Search,
   Settings,
-  List
+  List,
+  Database,
+  Cloud
 } from 'lucide-react'
 
 // =====================================================
@@ -265,6 +268,11 @@ export function Manutencoes() {
   // Estados de UI
   const [secaoExpandida, setSecaoExpandida] = useState<CategoriaItem | null>('equipamento')
   
+  // Estados de sincronização
+  const [sincronizando, setSincronizando] = useState(false)
+  const [ultimaSincronizacao, setUltimaSincronizacao] = useState<Date | null>(null)
+  const [erroSincronizacao, setErroSincronizacao] = useState<string | null>(null)
+  
   const loadingRef = useRef(false)
   
   // Lista completa de tipos (padrão + customizados)
@@ -388,9 +396,38 @@ export function Manutencoes() {
       setError(null)
       
       try {
-        // Carregar tipos customizados
-        const tiposCustom = carregarTiposCustomizados()
+        // Tentar carregar do banco primeiro
+        let dadosDoBanco: { tipos: any[], itens: any[], excluidos: string[] } | null = null
+        try {
+          dadosDoBanco = await ManutencoesDB.buscarTodosDados(companyId)
+          if (dadosDoBanco.tipos.length > 0 || dadosDoBanco.itens.length > 0) {
+            console.log('[Manutencoes] Dados encontrados no banco, usando-os')
+          } else {
+            dadosDoBanco = null
+          }
+        } catch (err) {
+          console.log('[Manutencoes] Erro ao buscar do banco, usando localStorage:', err)
+          dadosDoBanco = null
+        }
+        
+        // Carregar tipos customizados (do banco ou localStorage)
+        let tiposCustom: TipoItemManutencao[]
+        if (dadosDoBanco && dadosDoBanco.tipos.length > 0) {
+          tiposCustom = dadosDoBanco.tipos.map(t => ({
+            id: t.id,
+            nome: t.nome,
+            categoria: t.categoria,
+            periodicidadeMeses: t.periodicidade_meses,
+            obrigatorio: t.obrigatorio,
+            descricaoPadrao: t.descricao_padrao,
+          }))
+        } else {
+          tiposCustom = carregarTiposCustomizados()
+        }
         setTiposCustomizados(tiposCustom)
+        if (dadosDoBanco && dadosDoBanco.tipos.length > 0) {
+          salvarTiposCustomizados(tiposCustom)
+        }
         
         // Carregar condomínios da API
         const condominiosList = await carregarCondominios()
@@ -400,8 +437,42 @@ export function Manutencoes() {
         // Combinar tipos padrão + customizados
         const todosTiposDisponiveis = [...TIPOS_ITENS_MANUTENCAO, ...tiposCustom]
         
-        // Carregar itens salvos
-        let itensLocal = carregarDados()
+        // Carregar itens (do banco ou localStorage)
+        let itensLocal: ItemManutencao[]
+        if (dadosDoBanco && dadosDoBanco.itens.length > 0) {
+          itensLocal = dadosDoBanco.itens.map(i => ({
+            id: i.id,
+            idCondominio: i.id_condominio,
+            nomeCondominio: i.nome_condominio,
+            tipoItemId: i.tipo_item_id,
+            tipoItemNome: i.tipo_item_nome,
+            categoria: i.categoria,
+            dataUltimaManutencao: i.data_ultima_manutencao,
+            dataProximaManutencao: i.data_proxima_manutencao,
+            dataVencimentoGarantia: i.data_vencimento_garantia,
+            periodicidadeMeses: i.periodicidade_meses,
+            fornecedor: i.fornecedor,
+            telefoneContato: i.telefone_contato,
+            emailContato: i.email_contato,
+            numeroContrato: i.numero_contrato,
+            valorContrato: i.valor_contrato,
+            laudoTecnico: i.laudo_tecnico,
+            certificado: i.certificado,
+            observacoes: i.observacoes,
+            status: i.status,
+            prioridade: i.prioridade,
+            dataCriacao: i.data_criacao || new Date().toISOString(),
+            dataAtualizacao: i.data_atualizacao || new Date().toISOString(),
+          }))
+        } else {
+          itensLocal = carregarDados()
+        }
+        
+        // Atualizar lista de excluídos (do banco ou localStorage)
+        if (dadosDoBanco && dadosDoBanco.excluidos.length > 0) {
+          const excluidosSet = new Set(dadosDoBanco.excluidos)
+          salvarItensExcluidos(excluidosSet)
+        }
         
         // Inicializar itens padrão para novos condomínios
         itensLocal = inicializarItensPadrao(condominiosList, itensLocal, todosTiposDisponiveis)
@@ -577,6 +648,13 @@ export function Manutencoes() {
     setTiposCustomizados(novosTipos)
     salvarTiposCustomizados(novosTipos)
     fecharModalTipos()
+    
+    // Sincronizar com banco (em background, não bloquear UI)
+    if (companyId) {
+      sincronizarComBanco().catch(err => {
+        console.error('[Manutencoes] Erro ao sincronizar após salvar tipo:', err)
+      })
+    }
   }
   
   const excluirTipo = (id: string) => {
@@ -634,6 +712,13 @@ export function Manutencoes() {
     setItens(novosItens)
     salvarDados(novosItens)
     fecharModal()
+    
+    // Sincronizar com banco (em background, não bloquear UI)
+    if (companyId) {
+      sincronizarComBanco().catch(err => {
+        console.error('[Manutencoes] Erro ao sincronizar após salvar:', err)
+      })
+    }
   }
   
   const excluirItem = (id: string) => {
@@ -649,7 +734,167 @@ export function Manutencoes() {
     const novosItens = itens.filter(i => i.id !== id)
     setItens(novosItens)
     salvarDados(novosItens)
+    
+    // Sincronizar exclusão com banco (em background, não bloquear UI)
+    if (companyId) {
+      sincronizarExclusaoComBanco(item.idCondominio, item.tipoItemId).catch(err => {
+        console.error('[Manutencoes] Erro ao sincronizar exclusão:', err)
+      })
+    }
   }
+  
+  // =====================================================
+  // FUNÇÕES DE SINCRONIZAÇÃO COM BANCO
+  // =====================================================
+  
+  const sincronizarExclusaoComBanco = async (idCondominio: string, tipoItemId: string) => {
+    if (!companyId) return
+    try {
+      await ManutencoesDB.registrarItemExcluido(idCondominio, tipoItemId, companyId)
+    } catch (error) {
+      console.error('[Manutencoes] Erro ao registrar exclusão no banco:', error)
+    }
+  }
+  
+  const sincronizarComBanco = useCallback(async () => {
+    if (!companyId || sincronizando) return
+    
+    setSincronizando(true)
+    setErroSincronizacao(null)
+    
+    try {
+      console.log('[Manutencoes] Iniciando sincronização com banco...')
+      
+      // Converter tipos para formato do banco
+      const tiposDB: ManutencoesDB.TipoItemManutencaoDB[] = tiposCustomizados.map(t => ({
+        id: t.id,
+        nome: t.nome,
+        categoria: t.categoria,
+        periodicidade_meses: t.periodicidadeMeses,
+        obrigatorio: t.obrigatorio,
+        descricao_padrao: t.descricaoPadrao,
+      }))
+      
+      // Converter itens para formato do banco
+      const itensDB: ManutencoesDB.ItemManutencaoDB[] = itens.map(i => ({
+        id: i.id,
+        id_condominio: i.idCondominio,
+        nome_condominio: i.nomeCondominio,
+        tipo_item_id: i.tipoItemId,
+        tipo_item_nome: i.tipoItemNome,
+        categoria: i.categoria,
+        data_ultima_manutencao: i.dataUltimaManutencao,
+        data_proxima_manutencao: i.dataProximaManutencao,
+        data_vencimento_garantia: i.dataVencimentoGarantia,
+        periodicidade_meses: i.periodicidadeMeses,
+        fornecedor: i.fornecedor,
+        telefone_contato: i.telefoneContato,
+        email_contato: i.emailContato,
+        numero_contrato: i.numeroContrato,
+        valor_contrato: i.valorContrato,
+        laudo_tecnico: i.laudoTecnico,
+        certificado: i.certificado,
+        observacoes: i.observacoes,
+        status: i.status,
+        prioridade: i.prioridade,
+        id_empresa: companyId,
+      }))
+      
+      // Converter excluídos para formato do banco
+      const excluidos = Array.from(carregarItensExcluidos())
+      
+      // Sincronizar todos os dados
+      await ManutencoesDB.sincronizarTodosDados(tiposDB, itensDB, excluidos, companyId)
+      
+      setUltimaSincronizacao(new Date())
+      console.log('[Manutencoes] ✅ Sincronização concluída com sucesso')
+    } catch (error: any) {
+      console.error('[Manutencoes] ❌ Erro na sincronização:', error)
+      setErroSincronizacao(error.message || 'Erro ao sincronizar com banco de dados')
+    } finally {
+      setSincronizando(false)
+    }
+  }, [companyId, tiposCustomizados, itens, sincronizando])
+  
+  const carregarDoBanco = useCallback(async () => {
+    if (!companyId || loadingRef.current) return
+    
+    loadingRef.current = true
+    setLoading(true)
+    setError(null)
+    
+    try {
+      console.log('[Manutencoes] Carregando dados do banco...')
+      
+      const dados = await ManutencoesDB.buscarTodosDados(companyId)
+      
+      // Se houver dados no banco, usar eles
+      if (dados.tipos.length > 0 || dados.itens.length > 0) {
+        // Converter tipos do banco para formato local
+        const tiposLocal: TipoItemManutencao[] = dados.tipos.map(t => ({
+          id: t.id,
+          nome: t.nome,
+          categoria: t.categoria,
+          periodicidadeMeses: t.periodicidade_meses,
+          obrigatorio: t.obrigatorio,
+          descricaoPadrao: t.descricao_padrao,
+        }))
+        setTiposCustomizados(tiposLocal)
+        salvarTiposCustomizados(tiposLocal)
+        
+        // Converter itens do banco para formato local
+        const itensLocal: ItemManutencao[] = dados.itens.map(i => ({
+          id: i.id,
+          idCondominio: i.id_condominio,
+          nomeCondominio: i.nome_condominio,
+          tipoItemId: i.tipo_item_id,
+          tipoItemNome: i.tipo_item_nome,
+          categoria: i.categoria,
+          dataUltimaManutencao: i.data_ultima_manutencao,
+          dataProximaManutencao: i.data_proxima_manutencao,
+          dataVencimentoGarantia: i.data_vencimento_garantia,
+          periodicidadeMeses: i.periodicidade_meses,
+          fornecedor: i.fornecedor,
+          telefoneContato: i.telefone_contato,
+          emailContato: i.email_contato,
+          numeroContrato: i.numero_contrato,
+          valorContrato: i.valor_contrato,
+          laudoTecnico: i.laudo_tecnico,
+          certificado: i.certificado,
+          observacoes: i.observacoes,
+          status: i.status,
+          prioridade: i.prioridade,
+          dataCriacao: i.data_criacao || new Date().toISOString(),
+          dataAtualizacao: i.data_atualizacao || new Date().toISOString(),
+        }))
+        
+        // Recalcular status
+        const itensComStatus = itensLocal.map(item => ({
+          ...item,
+          status: calcularStatus(item)
+        }))
+        
+        setItens(itensComStatus)
+        salvarDados(itensComStatus)
+        
+        // Atualizar lista de excluídos
+        const excluidosSet = new Set(dados.excluidos)
+        salvarItensExcluidos(excluidosSet)
+        
+        console.log('[Manutencoes] ✅ Dados carregados do banco')
+      } else {
+        // Se não houver dados no banco, carregar do localStorage normalmente
+        console.log('[Manutencoes] Nenhum dado no banco, usando localStorage')
+      }
+    } catch (error: any) {
+      console.error('[Manutencoes] Erro ao carregar do banco:', error)
+      // Em caso de erro, continuar com localStorage (fallback)
+      console.log('[Manutencoes] Usando localStorage como fallback')
+    } finally {
+      setLoading(false)
+      loadingRef.current = false
+    }
+  }, [companyId])
 
   // =====================================================
   // RENDERIZAÇÃO DE STATUS
@@ -716,8 +961,35 @@ export function Manutencoes() {
             <p className="text-sm text-gray-600">
               Gestão completa de manutenções e equipamentos dos condomínios
             </p>
+            {ultimaSincronizacao && (
+              <p className="text-xs text-gray-500 mt-1">
+                Última sincronização: {ultimaSincronizacao.toLocaleString('pt-BR')}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={sincronizarComBanco}
+              disabled={sincronizando || !companyId}
+              className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
+                sincronizando
+                  ? 'bg-gray-400 text-white cursor-not-allowed'
+                  : 'bg-green-600 text-white hover:bg-green-700'
+              }`}
+              title={ultimaSincronizacao ? `Última sincronização: ${ultimaSincronizacao.toLocaleString('pt-BR')}` : 'Sincronizar com banco de dados'}
+            >
+              {sincronizando ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Sincronizando...
+                </>
+              ) : (
+                <>
+                  <Database className="w-4 h-4" />
+                  Sincronizar
+                </>
+              )}
+            </button>
             <button
               onClick={() => {
                 setTipoEditando(null)
@@ -739,6 +1011,24 @@ export function Manutencoes() {
             </button>
           </div>
         </div>
+        
+        {/* Mensagem de erro de sincronização */}
+        {erroSincronizacao && (
+          <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-yellow-600" />
+              <p className="text-sm text-yellow-800">
+                Erro na sincronização: {erroSincronizacao}
+              </p>
+            </div>
+            <button
+              onClick={() => setErroSincronizacao(null)}
+              className="text-yellow-600 hover:text-yellow-800"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
         
         {/* Cards de Estatísticas */}
         <div className="grid grid-cols-5 gap-3">

@@ -238,16 +238,68 @@ const apiRequest = async <T = any>(
 
   if (!response.ok) {
     console.error(`[API] ❌ Resposta não OK: ${response.status} ${response.statusText}`)
+    
+    // Tratamento específico para erros temporários (503, 502, 504)
+    if (response.status === 503 || response.status === 502 || response.status === 504) {
+      console.warn(`[API] ⚠️ Erro temporário do servidor (${response.status}). O serviço pode estar sobrecarregado ou em manutenção.`)
+      
+      // Tentar retry automático para erros temporários (apenas uma vez)
+      const retryCount = (options as any)?._retryCount || 0
+      if (retryCount === 0 && method === 'GET') {
+        console.log(`[API] 🔄 Tentando retry automático após 2 segundos...`)
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        
+        try {
+          const retryResponse = await fetch(finalUrl, {
+            method,
+            headers: headers,
+            body: data ? JSON.stringify(data) : undefined,
+            cache: 'no-store',
+            ...restOptions,
+          })
+          
+          if (retryResponse.ok) {
+            console.log(`[API] ✅ Retry bem-sucedido após erro ${response.status}`)
+            const retryContentType = retryResponse.headers.get('content-type') || ''
+            let retryData: T
+            if (retryContentType.includes('application/json')) {
+              retryData = await retryResponse.json()
+            } else {
+              retryData = await retryResponse.text() as any
+            }
+            return {
+              data: retryData,
+              status: retryResponse.status,
+              statusText: retryResponse.statusText,
+            }
+          }
+        } catch (retryError) {
+          console.error(`[API] ❌ Retry falhou:`, retryError)
+        }
+      }
+    }
+    
     // #region agent log
     fetch('http://127.0.0.1:7242/ingest/f0428a8a-3429-4d2c-96c5-eee3af77a73c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:227',message:'API response not OK',data:{status:response.status,statusText:response.statusText,url:finalUrl,hasToken:!!currentToken,tokenPrefix:currentToken?currentToken.substring(0,20)+'...':'null',companyId:localStorage.getItem('x-company-id')||'null',responseData:typeof responseData==='string'?responseData.substring(0,500):JSON.stringify(responseData).substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
     // #endregion
+    
+    // Mensagens de erro mais descritivas
+    let errorMessage = `HTTP ${response.status}: ${response.statusText}`
+    if (response.status === 503) {
+      errorMessage = `Serviço temporariamente indisponível (503). O servidor pode estar sobrecarregado ou em manutenção. Aguarde alguns instantes e tente novamente.`
+    } else if (response.status === 502) {
+      errorMessage = `Erro de gateway (502). O servidor intermediário recebeu uma resposta inválida. Tente novamente em alguns instantes.`
+    } else if (response.status === 504) {
+      errorMessage = `Timeout do gateway (504). O servidor demorou muito para responder. Tente novamente em alguns instantes.`
+    }
+    
     throw {
       response: {
         status: response.status,
         statusText: response.statusText,
         data: responseData,
       },
-      message: `HTTP ${response.status}: ${response.statusText}`,
+      message: errorMessage,
     }
   }
 
