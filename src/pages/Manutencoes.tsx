@@ -1,183 +1,352 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../lib/api'
-import { Upload } from 'lucide-react'
+import { 
+  Plus, 
+  Edit2, 
+  Trash2, 
+  X, 
+  Save, 
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  Building2,
+  Wrench,
+  Shield,
+  FileText,
+  Calendar,
+  DollarSign,
+  ChevronDown,
+  ChevronUp,
+  Filter,
+  Search,
+  Settings,
+  List
+} from 'lucide-react'
 
-type Manutencao = {
+// =====================================================
+// TIPOS E CONSTANTES
+// =====================================================
+
+// Categorias de itens de manutenção
+type CategoriaItem = 'equipamento' | 'estrutura' | 'administrativo'
+
+// Status de manutenção
+type StatusManutencao = 'em_dia' | 'proximo_vencimento' | 'vencido' | 'nao_iniciado'
+
+// Prioridade
+type Prioridade = 'baixa' | 'media' | 'alta' | 'critica'
+
+// Tipo de item de manutenção
+type TipoItemManutencao = {
   id: string
-  condominio: string
-  tipo: string
-  fornecedor: string
-  descricao: string
-  dataVencimento: string
-  valor: number
-  status: 'pendente' | 'vencido' | 'concluido'
-  prioridade: 'baixa' | 'media' | 'alta'
-  observacoes?: string
-  idCondominio?: string
+  nome: string
+  categoria: CategoriaItem
+  periodicidadeMeses: number // Periodicidade padrão em meses
+  obrigatorio: boolean
+  descricaoPadrao: string
 }
 
-const STORAGE_KEY = 'manutencoes_db'
+// Item de manutenção por condomínio
+type ItemManutencao = {
+  id: string
+  idCondominio: string
+  nomeCondominio: string
+  tipoItemId: string
+  tipoItemNome: string
+  categoria: CategoriaItem
+  
+  // Dados da manutenção
+  dataUltimaManutencao: string | null
+  dataProximaManutencao: string | null
+  dataVencimentoGarantia: string | null
+  periodicidadeMeses: number
+  
+  // Fornecedor/Contrato
+  fornecedor: string
+  telefoneContato: string
+  emailContato: string
+  numeroContrato: string
+  valorContrato: number
+  
+  // Documentação
+  laudoTecnico: string
+  certificado: string
+  observacoes: string
+  
+  // Status
+  status: StatusManutencao
+  prioridade: Prioridade
+  
+  // Metadados
+  dataCriacao: string
+  dataAtualizacao: string
+}
 
-// Funções para gerenciar dados no localStorage
-function carregarManutencoes(): Manutencao[] {
+// Condomínio
+type Condominio = {
+  id: string
+  nome: string
+}
+
+// Tipos de itens obrigatórios para condomínios
+const TIPOS_ITENS_MANUTENCAO: TipoItemManutencao[] = [
+  // EQUIPAMENTOS
+  { id: 'elevador', nome: 'Elevadores', categoria: 'equipamento', periodicidadeMeses: 1, obrigatorio: true, descricaoPadrao: 'Manutenção preventiva e corretiva de elevadores' },
+  { id: 'bomba_agua', nome: 'Bombas d\'água', categoria: 'equipamento', periodicidadeMeses: 6, obrigatorio: true, descricaoPadrao: 'Verificação e manutenção das bombas de recalque e pressurização' },
+  { id: 'gerador', nome: 'Geradores', categoria: 'equipamento', periodicidadeMeses: 3, obrigatorio: true, descricaoPadrao: 'Teste e manutenção do grupo gerador' },
+  { id: 'portao_automatico', nome: 'Portões automáticos', categoria: 'equipamento', periodicidadeMeses: 3, obrigatorio: true, descricaoPadrao: 'Manutenção de portões e motores' },
+  { id: 'interfone', nome: 'Interfones', categoria: 'equipamento', periodicidadeMeses: 12, obrigatorio: true, descricaoPadrao: 'Verificação do sistema de interfonia' },
+  { id: 'cftv', nome: 'CFTV / Câmeras', categoria: 'equipamento', periodicidadeMeses: 6, obrigatorio: true, descricaoPadrao: 'Manutenção do sistema de câmeras e gravação' },
+  { id: 'iluminacao_emergencia', nome: 'Iluminação de emergência', categoria: 'equipamento', periodicidadeMeses: 6, obrigatorio: true, descricaoPadrao: 'Teste e manutenção das luminárias de emergência' },
+  { id: 'sistema_incendio', nome: 'Sistemas de incêndio', categoria: 'equipamento', periodicidadeMeses: 12, obrigatorio: true, descricaoPadrao: 'Recarga de extintores, teste de hidrantes e alarmes' },
+  { id: 'pressurizacao_escadas', nome: 'Pressurização de escadas', categoria: 'equipamento', periodicidadeMeses: 12, obrigatorio: true, descricaoPadrao: 'Teste e manutenção do sistema de pressurização' },
+  { id: 'ar_condicionado', nome: 'Ar condicionado central', categoria: 'equipamento', periodicidadeMeses: 3, obrigatorio: false, descricaoPadrao: 'Manutenção preventiva do sistema de climatização' },
+  
+  // ESTRUTURAS
+  { id: 'telhado', nome: 'Telhado', categoria: 'estrutura', periodicidadeMeses: 12, obrigatorio: true, descricaoPadrao: 'Inspeção e manutenção do telhado e calhas' },
+  { id: 'fachada', nome: 'Fachada', categoria: 'estrutura', periodicidadeMeses: 60, obrigatorio: true, descricaoPadrao: 'Inspeção e manutenção da fachada (pintura, rejunte)' },
+  { id: 'caixa_agua', nome: 'Caixa d\'água', categoria: 'estrutura', periodicidadeMeses: 6, obrigatorio: true, descricaoPadrao: 'Limpeza e higienização das caixas d\'água' },
+  { id: 'para_raios', nome: 'Para-raios (SPDA)', categoria: 'estrutura', periodicidadeMeses: 12, obrigatorio: true, descricaoPadrao: 'Inspeção e laudo do sistema de proteção contra descargas atmosféricas' },
+  { id: 'caldeira', nome: 'Caldeiras', categoria: 'estrutura', periodicidadeMeses: 12, obrigatorio: false, descricaoPadrao: 'Inspeção e manutenção de caldeiras (se houver)' },
+  { id: 'piscina', nome: 'Piscina', categoria: 'estrutura', periodicidadeMeses: 1, obrigatorio: false, descricaoPadrao: 'Tratamento químico e manutenção da piscina' },
+  { id: 'playground', nome: 'Playground', categoria: 'estrutura', periodicidadeMeses: 6, obrigatorio: false, descricaoPadrao: 'Inspeção de segurança dos brinquedos' },
+  
+  // ADMINISTRATIVOS
+  { id: 'contrato_manutencao', nome: 'Contratos de manutenção', categoria: 'administrativo', periodicidadeMeses: 12, obrigatorio: true, descricaoPadrao: 'Renovação e gestão de contratos' },
+  { id: 'fornecedores', nome: 'Cadastro de fornecedores', categoria: 'administrativo', periodicidadeMeses: 12, obrigatorio: true, descricaoPadrao: 'Atualização do cadastro de fornecedores' },
+  { id: 'garantias', nome: 'Garantias', categoria: 'administrativo', periodicidadeMeses: 12, obrigatorio: true, descricaoPadrao: 'Controle de garantias de equipamentos e serviços' },
+  { id: 'laudo_tecnico', nome: 'Laudos técnicos', categoria: 'administrativo', periodicidadeMeses: 12, obrigatorio: true, descricaoPadrao: 'Emissão e renovação de laudos obrigatórios' },
+  { id: 'certificado_legal', nome: 'Certificados legais', categoria: 'administrativo', periodicidadeMeses: 12, obrigatorio: true, descricaoPadrao: 'AVCB, licenças e certificados legais' },
+  { id: 'seguro_predial', nome: 'Seguro predial', categoria: 'administrativo', periodicidadeMeses: 12, obrigatorio: true, descricaoPadrao: 'Renovação do seguro do condomínio' },
+]
+
+const STORAGE_KEY = 'manutencoes_controle_db'
+const STORAGE_KEY_TIPOS = 'manutencoes_tipos_customizados_db'
+
+// =====================================================
+// FUNÇÕES UTILITÁRIAS
+// =====================================================
+
+function gerarId(): string {
+  return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+}
+
+function carregarDados(): ItemManutencao[] {
   try {
     const data = localStorage.getItem(STORAGE_KEY)
     if (!data) return []
     return JSON.parse(data)
   } catch (error) {
-    console.error('[ManutencoesDB] Erro ao carregar:', error)
+    console.error('[Manutencoes] Erro ao carregar dados:', error)
     return []
   }
 }
 
-function salvarManutencoes(manutencoes: Manutencao[]): void {
+function salvarDados(itens: ItemManutencao[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(manutencoes))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(itens))
   } catch (error) {
-    console.error('[ManutencoesDB] Erro ao salvar:', error)
+    console.error('[Manutencoes] Erro ao salvar dados:', error)
   }
 }
 
-function gerarIdManutencao(condominio: string, tipo: string): string {
-  return `${condominio}_${tipo}`.replace(/[^a-zA-Z0-9_]/g, '_')
-}
-
-// Função para buscar dados de manutenções da API
-async function carregarManutencoesDaAPI(apiInstance: typeof api, companyId: string): Promise<Manutencao[]> {
+function carregarTiposCustomizados(): TipoItemManutencao[] {
   try {
-    console.log('[Manutencoes] ========== BUSCANDO MANUTENÇÕES DA API ==========')
-    console.log('[Manutencoes] Company ID:', companyId)
-    
-    // Tentar buscar manutenções da API
-    // Primeiro, tentar endpoint específico de manutenções se existir
-    let manutencoes: Manutencao[] = []
-    
-    try {
-      // Tentar endpoint específico de manutenções
-      const responseManutencoes = await apiInstance.get<any>('/api/condominios/superlogica/manutencoes/get')
-      const dataManutencoes = responseManutencoes.data
-      const listManutencoes = Array.isArray(dataManutencoes) 
-        ? dataManutencoes 
-        : dataManutencoes?.data || dataManutencoes?.manutencoes || []
-      
-      if (listManutencoes.length > 0) {
-        console.log(`[Manutencoes] ✅ Encontradas ${listManutencoes.length} manutenções no endpoint específico`)
-        manutencoes = listManutencoes.map((item: any) => ({
-          id: gerarIdManutencao(item.condominio || item.nomeCondominio || '', item.tipo || ''),
-          condominio: item.condominio || item.nomeCondominio || item.nomeFantasia || '',
-          tipo: item.tipo || item.tipoManutencao || '',
-          fornecedor: item.fornecedor || item.nomeFornecedor || '',
-          descricao: item.descricao || item.descricaoManutencao || '',
-          dataVencimento: item.dataVencimento || item.dataVencimentoManutencao || item.dtVencimento || '',
-          valor: item.valor || item.valorManutencao || 0,
-          status: item.status || 'pendente',
-          prioridade: item.prioridade || 'media',
-          observacoes: item.observacoes || '',
-          idCondominio: item.idCondominio || item.id_condominio_cond || ''
-        }))
-        return manutencoes
-      }
-    } catch (err: any) {
-      console.log('[Manutencoes] Endpoint específico de manutenções não disponível, tentando buscar de condomínios...')
-    }
-    
-    // Se não encontrou endpoint específico, buscar dados de condomínios e criar entradas básicas
-    let todosCondominios: any[] = []
-    let paginaCondominios = 1
-    let temMaisCondominios = true
-    
-    while (temMaisCondominios) {
-      try {
-        // Buscar TODAS as colunas para ter acesso a dados completos
-        const urlCondominios = `/api/condominios/superlogica/condominios/get?id=-1&somenteCondominiosAtivos=1&ignorarCondominioModelo=1&itensPorPagina=100&pagina=${paginaCondominios}`
-        console.log(`[Manutencoes] Buscando condomínios página ${paginaCondominios}...`)
-        const responseCondominios = await apiInstance.get<any>(urlCondominios)
-        
-        const dataCondominios = responseCondominios.data
-        const listCondominios = Array.isArray(dataCondominios) 
-          ? dataCondominios 
-          : dataCondominios?.data || dataCondominios?.condominios || []
-        
-        if (listCondominios.length === 0) {
-          temMaisCondominios = false
-          break
-        }
-        
-        todosCondominios = todosCondominios.concat(listCondominios)
-        
-        if (listCondominios.length < 100) {
-          temMaisCondominios = false
-        } else {
-          paginaCondominios++
-          if (paginaCondominios > 50) {
-            temMaisCondominios = false
-          }
-        }
-      } catch (err: any) {
-        if (err?.response?.status === 401) {
-          throw err
-        }
-        temMaisCondominios = false
-      }
-    }
-    
-    console.log(`[Manutencoes] ✅ Total de condomínios encontrados: ${todosCondominios.length}`)
-    
-    // Criar entradas básicas de manutenção para cada condomínio
-    if (manutencoes.length === 0) {
-      let criados = 0
-      todosCondominios.forEach((condominio: any) => {
-        const nomeCondominio = condominio.st_nome_cond || condominio.st_fantasia_cond || condominio.nomeFantasia || condominio.nome || condominio.razaoSocial || ''
-        if (nomeCondominio && nomeCondominio.trim()) {
-          // Criar entradas básicas para diferentes tipos de manutenção
-          const tiposManutencao = ['Elevador', 'Portaria', 'Jardim', 'Limpeza', 'Elétrica', 'Hidráulica', 'Pintura']
-          tiposManutencao.forEach(tipo => {
-            manutencoes.push({
-              id: gerarIdManutencao(nomeCondominio, tipo),
-              condominio: nomeCondominio,
-              tipo: tipo,
-              fornecedor: '',
-              descricao: `Manutenção de ${tipo.toLowerCase()}`,
-              dataVencimento: '',
-              valor: 0,
-              status: 'pendente',
-              prioridade: 'media',
-              observacoes: '',
-              idCondominio: condominio.id_condominio_cond || condominio.id || ''
-            })
-          })
-          criados++
-        }
-      })
-      console.log(`[Manutencoes] ✅ Criadas ${manutencoes.length} entradas de manutenção`)
-    }
-    
-    console.log(`[Manutencoes] ✅ Total de manutenções processadas: ${manutencoes.length}`)
-    return manutencoes
-  } catch (error: any) {
-    console.error('[Manutencoes] Erro ao carregar da API:', error)
-    throw error
+    const data = localStorage.getItem(STORAGE_KEY_TIPOS)
+    if (!data) return []
+    return JSON.parse(data)
+  } catch (error) {
+    console.error('[Manutencoes] Erro ao carregar tipos customizados:', error)
+    return []
   }
 }
+
+function salvarTiposCustomizados(tipos: TipoItemManutencao[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_TIPOS, JSON.stringify(tipos))
+  } catch (error) {
+    console.error('[Manutencoes] Erro ao salvar tipos customizados:', error)
+  }
+}
+
+function calcularStatus(item: ItemManutencao): StatusManutencao {
+  if (!item.dataProximaManutencao) return 'nao_iniciado'
+  
+  const hoje = new Date()
+  hoje.setHours(0, 0, 0, 0)
+  
+  const dataProxima = new Date(item.dataProximaManutencao)
+  dataProxima.setHours(0, 0, 0, 0)
+  
+  const diffDias = Math.floor((dataProxima.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
+  
+  if (diffDias < 0) return 'vencido'
+  if (diffDias <= 30) return 'proximo_vencimento'
+  return 'em_dia'
+}
+
+function formatarData(data: string | null): string {
+  if (!data) return '-'
+  try {
+    return new Date(data).toLocaleDateString('pt-BR')
+  } catch {
+    return '-'
+  }
+}
+
+function formatarMoeda(valor: number): string {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL'
+  }).format(valor)
+}
+
+// =====================================================
+// COMPONENTE PRINCIPAL
+// =====================================================
 
 export function Manutencoes() {
   const { token, companyId } = useAuth()
-  const [data, setData] = useState<Manutencao[]>([])
+  
+  // Estados principais
+  const [itens, setItens] = useState<ItemManutencao[]>([])
+  const [condominios, setCondominios] = useState<Condominio[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [searchTerm, setSearchTerm] = useState<string>('')
-  const [filterStatus, setFilterStatus] = useState<string>('')
+  
+  // Estados de filtro
+  const [filtroCondominio, setFiltroCondominio] = useState<string>('')
+  const [filtroCategoria, setFiltroCategoria] = useState<CategoriaItem | ''>('')
+  const [filtroStatus, setFiltroStatus] = useState<StatusManutencao | ''>('')
+  const [filtroBusca, setFiltroBusca] = useState<string>('')
+  
+  // Estados do modal de registro
+  const [modalAberto, setModalAberto] = useState(false)
+  const [modoEdicao, setModoEdicao] = useState(false)
+  const [itemEditando, setItemEditando] = useState<ItemManutencao | null>(null)
+  
+  // Estados do modal de tipos
+  const [modalTiposAberto, setModalTiposAberto] = useState(false)
+  const [tipoEditando, setTipoEditando] = useState<TipoItemManutencao | null>(null)
+  const [modoEdicaoTipo, setModoEdicaoTipo] = useState(false)
+  const [tiposCustomizados, setTiposCustomizados] = useState<TipoItemManutencao[]>([])
+  
+  // Estados de UI
+  const [secaoExpandida, setSecaoExpandida] = useState<CategoriaItem | null>('equipamento')
+  
   const loadingRef = useRef(false)
+  
+  // Lista completa de tipos (padrão + customizados)
+  const todosTipos = useMemo(() => {
+    return [...TIPOS_ITENS_MANUTENCAO, ...tiposCustomizados]
+  }, [tiposCustomizados])
 
-  // Carregar dados ao montar componente
+  // =====================================================
+  // CARREGAR CONDOMÍNIOS DA API
+  // =====================================================
+  
+  const carregarCondominios = useCallback(async () => {
+    if (!token || !companyId) return []
+    
+    try {
+      console.log('[Manutencoes] Buscando condomínios...')
+      const todosCondominios: Condominio[] = []
+      let pagina = 1
+      let temMais = true
+      
+      while (temMais) {
+        const url = `/api/condominios/superlogica/condominios/get?id=-1&somenteCondominiosAtivos=1&ignorarCondominioModelo=1&itensPorPagina=100&pagina=${pagina}`
+        const response = await api.get<any>(url)
+        const data = response.data
+        const lista = Array.isArray(data) ? data : data?.data || data?.condominios || []
+        
+        if (lista.length === 0) {
+          temMais = false
+          break
+        }
+        
+        lista.forEach((c: any) => {
+          const nome = c.st_fantasia_cond || c.st_nome_cond || c.nomeFantasia || c.nome || ''
+          const id = c.id_condominio_cond || c.id || ''
+          if (nome && id) {
+            todosCondominios.push({ id, nome })
+          }
+        })
+        
+        if (lista.length < 100) {
+          temMais = false
+        } else {
+          pagina++
+          if (pagina > 20) temMais = false
+        }
+      }
+      
+      // Ordenar por nome
+      todosCondominios.sort((a, b) => a.nome.localeCompare(b.nome))
+      
+      console.log(`[Manutencoes] ✅ ${todosCondominios.length} condomínios encontrados`)
+      return todosCondominios
+    } catch (err: any) {
+      console.error('[Manutencoes] Erro ao carregar condomínios:', err)
+      throw err
+    }
+  }, [token, companyId])
+
+  // =====================================================
+  // INICIALIZAR ITENS PADRÃO PARA CONDOMÍNIOS
+  // =====================================================
+  
+  const inicializarItensPadrao = useCallback((condominiosList: Condominio[], itensExistentes: ItemManutencao[], tiposDisponiveis: TipoItemManutencao[]): ItemManutencao[] => {
+    const novosItens: ItemManutencao[] = [...itensExistentes]
+    const itensExistentesSet = new Set(itensExistentes.map(i => `${i.idCondominio}_${i.tipoItemId}`))
+    
+    // Para cada condomínio, criar itens obrigatórios que não existem
+    condominiosList.forEach(cond => {
+      tiposDisponiveis.filter(tipo => tipo.obrigatorio).forEach(tipo => {
+        const chave = `${cond.id}_${tipo.id}`
+        if (!itensExistentesSet.has(chave)) {
+          novosItens.push({
+            id: gerarId(),
+            idCondominio: cond.id,
+            nomeCondominio: cond.nome,
+            tipoItemId: tipo.id,
+            tipoItemNome: tipo.nome,
+            categoria: tipo.categoria,
+            dataUltimaManutencao: null,
+            dataProximaManutencao: null,
+            dataVencimentoGarantia: null,
+            periodicidadeMeses: tipo.periodicidadeMeses,
+            fornecedor: '',
+            telefoneContato: '',
+            emailContato: '',
+            numeroContrato: '',
+            valorContrato: 0,
+            laudoTecnico: '',
+            certificado: '',
+            observacoes: tipo.descricaoPadrao,
+            status: 'nao_iniciado',
+            prioridade: 'media',
+            dataCriacao: new Date().toISOString(),
+            dataAtualizacao: new Date().toISOString(),
+          })
+        }
+      })
+    })
+    
+    return novosItens
+  }, [])
+
+  // =====================================================
+  // CARREGAR DADOS INICIAIS
+  // =====================================================
+  
   useEffect(() => {
     let cancelled = false
-    let mounted = true
     
-    async function carregarDados() {
+    async function carregarDadosIniciais() {
       if (loadingRef.current) return
-      
       if (!token || !companyId) {
         setLoading(false)
         return
@@ -188,177 +357,269 @@ export function Manutencoes() {
       setError(null)
       
       try {
-        // Buscar dados da API
-        const manutencoesDaAPI = await carregarManutencoesDaAPI(api, companyId)
+        // Carregar tipos customizados
+        const tiposCustom = carregarTiposCustomizados()
+        setTiposCustomizados(tiposCustom)
         
-        if (cancelled || !mounted) return
+        // Carregar condomínios da API
+        const condominiosList = await carregarCondominios()
+        if (cancelled) return
+        setCondominios(condominiosList)
         
-        // Carregar do localStorage (preserva edições do usuário)
-        const manutencoesDoStorage = carregarManutencoes()
+        // Combinar tipos padrão + customizados
+        const todosTiposDisponiveis = [...TIPOS_ITENS_MANUTENCAO, ...tiposCustom]
         
-        // Mesclar dados: API tem prioridade, mas manter dados editados do localStorage
-        const manutencoesMap = new Map<string, Manutencao>()
+        // Carregar itens salvos
+        let itensLocal = carregarDados()
         
-        // Adicionar dados da API primeiro
-        manutencoesDaAPI.forEach(m => manutencoesMap.set(m.id, m))
+        // Inicializar itens padrão para novos condomínios
+        itensLocal = inicializarItensPadrao(condominiosList, itensLocal, todosTiposDisponiveis)
         
-        // Mesclar com dados do localStorage (preservar edições)
-        manutencoesDoStorage.forEach(m => {
-          const existente = manutencoesMap.get(m.id)
-          if (existente) {
-            // Manter dados da API mas preservar campos editados pelo usuário
-            manutencoesMap.set(m.id, {
-              ...existente,
-              fornecedor: m.fornecedor || existente.fornecedor,
-              descricao: m.descricao || existente.descricao,
-              dataVencimento: m.dataVencimento || existente.dataVencimento,
-              valor: m.valor !== undefined && m.valor !== 0 ? m.valor : existente.valor,
-              status: m.status || existente.status,
-              prioridade: m.prioridade || existente.prioridade,
-              observacoes: m.observacoes || existente.observacoes
-            })
-          } else {
-            manutencoesMap.set(m.id, m)
-          }
-        })
+        // Recalcular status de cada item
+        itensLocal = itensLocal.map(item => ({
+          ...item,
+          status: calcularStatus(item)
+        }))
         
-        const manutencoesMescladas = Array.from(manutencoesMap.values())
-        setData(manutencoesMescladas)
-        salvarManutencoes(manutencoesMescladas)
-      } catch (error: any) {
-        if (cancelled || !mounted) return
-        console.error('[Manutencoes] Erro ao carregar:', error)
-        if (error?.response?.status === 401) {
-          setError('Token de autenticação expirado.')
-        } else {
-          setError(error.message || 'Erro ao carregar manutenções')
-        }
+        setItens(itensLocal)
+        salvarDados(itensLocal)
+      } catch (err: any) {
+        if (cancelled) return
+        console.error('[Manutencoes] Erro ao carregar:', err)
+        setError(err?.message || 'Erro ao carregar dados')
       } finally {
-        if (mounted) {
+        if (!cancelled) {
           setLoading(false)
           loadingRef.current = false
         }
       }
     }
     
-    carregarDados()
+    carregarDadosIniciais()
     
     return () => {
       cancelled = true
-      mounted = false
       loadingRef.current = false
     }
-  }, [token, companyId])
+  }, [token, companyId, carregarCondominios, inicializarItensPadrao])
 
-  // Função para recarregar dados da API
-  const handleRecarregar = useCallback(async () => {
-    if (loadingRef.current) return
-    if (!token || !companyId) return
-    
-    loadingRef.current = true
-    setLoading(true)
-    setError(null)
-    
-    try {
-      const manutencoesDaAPI = await carregarManutencoesDaAPI(api, companyId)
-      
-      // Mesclar com dados existentes
-      const manutencoesExistentes = carregarManutencoes()
-      const manutencoesMap = new Map<string, Manutencao>()
-      
-      // Adicionar dados da API primeiro
-      manutencoesDaAPI.forEach(m => manutencoesMap.set(m.id, m))
-      
-      // Mesclar com dados existentes (preservar edições)
-      manutencoesExistentes.forEach(m => {
-        const existente = manutencoesMap.get(m.id)
-        if (existente) {
-          manutencoesMap.set(m.id, {
-            ...existente,
-            fornecedor: m.fornecedor || existente.fornecedor,
-            descricao: m.descricao || existente.descricao,
-            dataVencimento: m.dataVencimento || existente.dataVencimento,
-            valor: m.valor !== undefined && m.valor !== 0 ? m.valor : existente.valor,
-            status: m.status || existente.status,
-            prioridade: m.prioridade || existente.prioridade,
-            observacoes: m.observacoes || existente.observacoes
-          })
-        } else {
-          manutencoesMap.set(m.id, m)
-        }
-      })
-      
-      const manutencoesMescladas = Array.from(manutencoesMap.values())
-      setData(manutencoesMescladas)
-      salvarManutencoes(manutencoesMescladas)
-    } catch (error: any) {
-      console.error('[Manutencoes] Erro ao recarregar:', error)
-      if (error?.response?.status === 401) {
-        setError('Token de autenticação expirado.')
-      } else {
-        setError(error.message || 'Erro ao recarregar dados')
+  // =====================================================
+  // FILTRAR ITENS
+  // =====================================================
+  
+  const itensFiltrados = useMemo(() => {
+    return itens.filter(item => {
+      if (filtroCondominio && item.idCondominio !== filtroCondominio) return false
+      if (filtroCategoria && item.categoria !== filtroCategoria) return false
+      if (filtroStatus && item.status !== filtroStatus) return false
+      if (filtroBusca) {
+        const busca = filtroBusca.toLowerCase()
+        const match = 
+          item.nomeCondominio.toLowerCase().includes(busca) ||
+          item.tipoItemNome.toLowerCase().includes(busca) ||
+          item.fornecedor.toLowerCase().includes(busca) ||
+          item.observacoes.toLowerCase().includes(busca)
+        if (!match) return false
       }
-    } finally {
-      setLoading(false)
-      loadingRef.current = false
-    }
-  }, [token, companyId])
+      return true
+    })
+  }, [itens, filtroCondominio, filtroCategoria, filtroStatus, filtroBusca])
 
-  const filteredData = data.filter(item => {
-    const matchesSearch = !searchTerm || 
-      item.condominio.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.tipo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.fornecedor.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.descricao.toLowerCase().includes(searchTerm.toLowerCase())
+  // =====================================================
+  // ESTATÍSTICAS
+  // =====================================================
+  
+  const estatisticas = useMemo(() => {
+    const total = itens.length
+    const vencidos = itens.filter(i => i.status === 'vencido').length
+    const proximoVencimento = itens.filter(i => i.status === 'proximo_vencimento').length
+    const emDia = itens.filter(i => i.status === 'em_dia').length
+    const naoIniciados = itens.filter(i => i.status === 'nao_iniciado').length
     
-    const matchesStatus = !filterStatus || item.status === filterStatus
+    return { total, vencidos, proximoVencimento, emDia, naoIniciados }
+  }, [itens])
 
-    return matchesSearch && matchesStatus
-  })
-
-  const getStatusBadge = (status: string) => {
-    const styles = {
-      vencido: "bg-red-100 text-red-800",
-      pendente: "bg-yellow-100 text-yellow-800",
-      concluido: "bg-green-100 text-green-800"
+  // =====================================================
+  // AÇÕES CRUD
+  // =====================================================
+  
+  const abrirModalNovo = () => {
+    const primeiroTipo = todosTipos[0] || TIPOS_ITENS_MANUTENCAO[0]
+    setItemEditando({
+      id: '',
+      idCondominio: condominios[0]?.id || '',
+      nomeCondominio: condominios[0]?.nome || '',
+      tipoItemId: primeiroTipo.id,
+      tipoItemNome: primeiroTipo.nome,
+      categoria: primeiroTipo.categoria,
+      dataUltimaManutencao: null,
+      dataProximaManutencao: null,
+      dataVencimentoGarantia: null,
+      periodicidadeMeses: primeiroTipo.periodicidadeMeses,
+      fornecedor: '',
+      telefoneContato: '',
+      emailContato: '',
+      numeroContrato: '',
+      valorContrato: 0,
+      laudoTecnico: '',
+      certificado: '',
+      observacoes: primeiroTipo.descricaoPadrao,
+      status: 'nao_iniciado',
+      prioridade: 'media',
+      dataCriacao: new Date().toISOString(),
+      dataAtualizacao: new Date().toISOString(),
+    })
+    setModoEdicao(false)
+    setModalAberto(true)
+  }
+  
+  const abrirModalNovoTipo = () => {
+    setTipoEditando({
+      id: gerarId(),
+      nome: '',
+      categoria: 'equipamento',
+      periodicidadeMeses: 6,
+      obrigatorio: false,
+      descricaoPadrao: ''
+    })
+    setModoEdicaoTipo(false)
+    setModalTiposAberto(true)
+  }
+  
+  const abrirModalEditarTipo = (tipo: TipoItemManutencao) => {
+    setTipoEditando({ ...tipo })
+    setModoEdicaoTipo(true)
+    setModalTiposAberto(true)
+  }
+  
+  const fecharModalTipos = () => {
+    setModalTiposAberto(false)
+    setTipoEditando(null)
+    setModoEdicaoTipo(false)
+  }
+  
+  const salvarTipo = () => {
+    if (!tipoEditando || !tipoEditando.nome.trim()) return
+    
+    let novosTipos: TipoItemManutencao[]
+    
+    if (modoEdicaoTipo) {
+      // Edição
+      novosTipos = tiposCustomizados.map(t => 
+        t.id === tipoEditando.id ? tipoEditando : t
+      )
+    } else {
+      // Novo - verificar se já existe
+      const existe = todosTipos.some(t => t.id === tipoEditando.id || t.nome.toLowerCase() === tipoEditando.nome.toLowerCase())
+      if (existe) {
+        alert('Já existe um tipo com este nome ou ID')
+        return
+      }
+      novosTipos = [...tiposCustomizados, tipoEditando]
     }
+    
+    setTiposCustomizados(novosTipos)
+    salvarTiposCustomizados(novosTipos)
+    fecharModalTipos()
+  }
+  
+  const excluirTipo = (id: string) => {
+    // Verificar se o tipo está sendo usado
+    const emUso = itens.some(i => i.tipoItemId === id)
+    if (emUso) {
+      alert('Este tipo não pode ser excluído pois está sendo usado em registros de manutenção.')
+      return
+    }
+    
+    if (!confirm('Deseja realmente excluir este tipo de item?')) return
+    
+    const novosTipos = tiposCustomizados.filter(t => t.id !== id)
+    setTiposCustomizados(novosTipos)
+    salvarTiposCustomizados(novosTipos)
+  }
+  
+  const abrirModalEditar = (item: ItemManutencao) => {
+    setItemEditando({ ...item })
+    setModoEdicao(true)
+    setModalAberto(true)
+  }
+  
+  const fecharModal = () => {
+    setModalAberto(false)
+    setItemEditando(null)
+    setModoEdicao(false)
+  }
+  
+  const salvarItem = () => {
+    if (!itemEditando) return
+    
+    const agora = new Date().toISOString()
+    let novosItens: ItemManutencao[]
+    
+    if (modoEdicao) {
+      // Edição
+      novosItens = itens.map(i => 
+        i.id === itemEditando.id 
+          ? { ...itemEditando, dataAtualizacao: agora, status: calcularStatus(itemEditando) }
+          : i
+      )
+    } else {
+      // Novo
+      const novoItem: ItemManutencao = {
+        ...itemEditando,
+        id: gerarId(),
+        dataCriacao: agora,
+        dataAtualizacao: agora,
+        status: calcularStatus(itemEditando)
+      }
+      novosItens = [...itens, novoItem]
+    }
+    
+    setItens(novosItens)
+    salvarDados(novosItens)
+    fecharModal()
+  }
+  
+  const excluirItem = (id: string) => {
+    if (!confirm('Deseja realmente excluir este item?')) return
+    
+    const novosItens = itens.filter(i => i.id !== id)
+    setItens(novosItens)
+    salvarDados(novosItens)
+  }
+
+  // =====================================================
+  // RENDERIZAÇÃO DE STATUS
+  // =====================================================
+  
+  const renderStatusBadge = (status: StatusManutencao) => {
+    const configs = {
+      em_dia: { bg: 'bg-green-100', text: 'text-green-800', icon: CheckCircle, label: 'Em dia' },
+      proximo_vencimento: { bg: 'bg-yellow-100', text: 'text-yellow-800', icon: Clock, label: 'Próximo' },
+      vencido: { bg: 'bg-red-100', text: 'text-red-800', icon: AlertTriangle, label: 'Vencido' },
+      nao_iniciado: { bg: 'bg-gray-100', text: 'text-gray-600', icon: Clock, label: 'Não iniciado' }
+    }
+    const config = configs[status]
+    const Icon = config.icon
+    
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${styles[status as keyof typeof styles] || 'bg-gray-100 text-gray-800'}`}>
-        {status.charAt(0).toUpperCase() + status.slice(1)}
+      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+        <Icon className="w-3 h-3" />
+        {config.label}
       </span>
     )
   }
 
-  const getPrioridadeBadge = (prioridade: string) => {
-    const styles = {
-      alta: "bg-red-100 text-red-800",
-      media: "bg-yellow-100 text-yellow-800",
-      baixa: "bg-green-100 text-green-800"
-    }
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${styles[prioridade as keyof typeof styles] || 'bg-gray-100 text-gray-800'}`}>
-        {prioridade.charAt(0).toUpperCase() + prioridade.slice(1)}
-      </span>
-    )
-  }
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL'
-    }).format(value)
-  }
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('pt-BR')
-  }
-
+  // =====================================================
+  // LOADING E ERROR
+  // =====================================================
+  
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Carregando manutenções...</p>
+          <p className="text-gray-600">Carregando controle de manutenções...</p>
         </div>
       </div>
     )
@@ -368,119 +629,628 @@ export function Manutencoes() {
     return (
       <div className="p-6">
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-red-800 font-medium">Erro ao carregar manutenções</p>
+          <p className="text-red-800 font-medium">Erro ao carregar</p>
           <p className="text-red-600 text-sm mt-1">{error}</p>
-          <button
-            onClick={carregarManutencoes}
-            className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-          >
-            Tentar Novamente
-          </button>
         </div>
       </div>
     )
   }
 
+  // =====================================================
+  // RENDER PRINCIPAL
+  // =====================================================
+  
   return (
-    <div className="p-6 space-y-6">
-      <div className="bg-white shadow rounded-lg p-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Controle de Manutenção de Equipamentos</h1>
-        <p className="text-gray-600 mb-6">Gerencie as manutenções dos condomínios e acompanhe os vencimentos</p>
-        
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-            <p className="text-red-800 font-medium">Erro: {error}</p>
-            {error.includes('expirado') && (
-              <p className="text-red-600 text-sm mt-1">
-                Para renovar, execute no terminal: <code className="bg-red-100 px-2 py-1 rounded">./iap auth</code>
-                <br />
-                Depois, recarregue a página.
-              </p>
-            )}
+    <div className="p-4 space-y-4">
+      {/* Header */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+              <Wrench className="w-6 h-6 text-blue-600" />
+              Controle de Manutenções
+            </h1>
+            <p className="text-sm text-gray-600">
+              Gestão completa de manutenções e equipamentos dos condomínios
+            </p>
           </div>
-        )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setTipoEditando(null)
+                setModoEdicaoTipo(false)
+                setModalTiposAberto(true)
+              }}
+              className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2"
+              title="Gerenciar tipos de itens"
+            >
+              <Settings className="w-4 h-4" />
+              Gerenciar Tipos
+            </button>
+            <button
+              onClick={abrirModalNovo}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Novo Registro
+            </button>
+          </div>
+        </div>
         
-        {/* Barra de busca e botão recarregar */}
-        <div className="flex gap-4 mb-6">
-          <div className="flex-1">
+        {/* Cards de Estatísticas */}
+        <div className="grid grid-cols-5 gap-3">
+          <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+            <p className="text-xs text-gray-500">Total</p>
+            <p className="text-2xl font-bold text-gray-900">{estatisticas.total}</p>
+          </div>
+          <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+            <p className="text-xs text-green-600">Em dia</p>
+            <p className="text-2xl font-bold text-green-700">{estatisticas.emDia}</p>
+          </div>
+          <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-200">
+            <p className="text-xs text-yellow-600">Próximo vencimento</p>
+            <p className="text-2xl font-bold text-yellow-700">{estatisticas.proximoVencimento}</p>
+          </div>
+          <div className="bg-red-50 rounded-lg p-3 border border-red-200">
+            <p className="text-xs text-red-600">Vencidos</p>
+            <p className="text-2xl font-bold text-red-700">{estatisticas.vencidos}</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+            <p className="text-xs text-gray-500">Não iniciados</p>
+            <p className="text-2xl font-bold text-gray-600">{estatisticas.naoIniciados}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Filtros */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Filter className="w-4 h-4 text-gray-500" />
+          <span className="text-sm font-medium text-gray-700">Filtros</span>
+        </div>
+        <div className="grid grid-cols-4 gap-3">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar por condomínio, tipo, fornecedor..."
-              className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={filtroBusca}
+              onChange={e => setFiltroBusca(e.target.value)}
+              placeholder="Buscar..."
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          
-          <div className="w-48">
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Todos os status</option>
-              <option value="pendente">Pendente</option>
-              <option value="vencido">Vencido</option>
-              <option value="concluido">Concluído</option>
-            </select>
-          </div>
-          
-          <button
-            onClick={handleRecarregar}
-            disabled={loading}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          <select
+            value={filtroCondominio}
+            onChange={e => setFiltroCondominio(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <Upload size={16} />
-            <span>Recarregar da API</span>
-          </button>
+            <option value="">Todos os condomínios</option>
+            {condominios.map(c => (
+              <option key={c.id} value={c.id}>{c.nome}</option>
+            ))}
+          </select>
+          <select
+            value={filtroCategoria}
+            onChange={e => setFiltroCategoria(e.target.value as CategoriaItem | '')}
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Todas as categorias</option>
+            <option value="equipamento">Equipamentos</option>
+            <option value="estrutura">Estruturas</option>
+            <option value="administrativo">Administrativo</option>
+          </select>
+          <select
+            value={filtroStatus}
+            onChange={e => setFiltroStatus(e.target.value as StatusManutencao | '')}
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Todos os status</option>
+            <option value="em_dia">Em dia</option>
+            <option value="proximo_vencimento">Próximo vencimento</option>
+            <option value="vencido">Vencido</option>
+            <option value="nao_iniciado">Não iniciado</option>
+          </select>
         </div>
+      </div>
 
-        <div className="text-sm text-gray-600 mb-4">
-          {filteredData.length} manutenção(ões) encontrada(s)
-        </div>
-
-        {/* Tabela */}
+      {/* Lista de Itens */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
-            <thead className="bg-gray-50">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="border-b border-gray-300 px-4 py-3 text-left font-semibold text-gray-700">Condomínio</th>
-                <th className="border-b border-gray-300 px-4 py-3 text-left font-semibold text-gray-700">Tipo</th>
-                <th className="border-b border-gray-300 px-4 py-3 text-left font-semibold text-gray-700">Fornecedor</th>
-                <th className="border-b border-gray-300 px-4 py-3 text-left font-semibold text-gray-700">Descrição</th>
-                <th className="border-b border-gray-300 px-4 py-3 text-left font-semibold text-gray-700">Vencimento</th>
-                <th className="border-b border-gray-300 px-4 py-3 text-left font-semibold text-gray-700">Valor</th>
-                <th className="border-b border-gray-300 px-4 py-3 text-left font-semibold text-gray-700">Status</th>
-                <th className="border-b border-gray-300 px-4 py-3 text-left font-semibold text-gray-700">Prioridade</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700">Condomínio</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700">Item</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700">Categoria</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700">Última Manut.</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700">Próxima</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700">Garantia</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700">Fornecedor</th>
+                <th className="px-3 py-2 text-left font-semibold text-gray-700">Status</th>
+                <th className="px-3 py-2 text-center font-semibold text-gray-700">Ações</th>
               </tr>
             </thead>
-            <tbody>
-              {filteredData.length === 0 ? (
+            <tbody className="divide-y divide-gray-100">
+              {itensFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-gray-500">
-                    Nenhuma manutenção encontrada
+                  <td colSpan={9} className="px-3 py-8 text-center text-gray-500">
+                    Nenhum item encontrado com os filtros aplicados.
                   </td>
                 </tr>
               ) : (
-                filteredData.map((item) => (
-                  <tr key={item.id} className="border-b border-gray-200 hover:bg-gray-50">
-                    <td className="border-b border-gray-200 px-4 py-3 font-medium">{item.condominio}</td>
-                    <td className="border-b border-gray-200 px-4 py-3">{item.tipo}</td>
-                    <td className="border-b border-gray-200 px-4 py-3">{item.fornecedor}</td>
-                    <td className="border-b border-gray-200 px-4 py-3 max-w-xs truncate" title={item.descricao}>
-                      {item.descricao}
+                itensFiltrados.map(item => (
+                  <tr key={item.id} className={`hover:bg-gray-50 ${item.status === 'vencido' ? 'bg-red-50' : ''}`}>
+                    <td className="px-3 py-2 font-medium text-gray-900 truncate max-w-[150px]" title={item.nomeCondominio}>
+                      {item.nomeCondominio}
                     </td>
-                    <td className="border-b border-gray-200 px-4 py-3">{formatDate(item.dataVencimento)}</td>
-                    <td className="border-b border-gray-200 px-4 py-3 font-medium">{formatCurrency(item.valor)}</td>
-                    <td className="border-b border-gray-200 px-4 py-3">{getStatusBadge(item.status)}</td>
-                    <td className="border-b border-gray-200 px-4 py-3">{getPrioridadeBadge(item.prioridade)}</td>
+                    <td className="px-3 py-2 text-gray-700">{item.tipoItemNome}</td>
+                    <td className="px-3 py-2">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        item.categoria === 'equipamento' ? 'bg-blue-100 text-blue-800' :
+                        item.categoria === 'estrutura' ? 'bg-purple-100 text-purple-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {item.categoria === 'equipamento' ? 'Equip.' : item.categoria === 'estrutura' ? 'Estrut.' : 'Admin.'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-gray-600">{formatarData(item.dataUltimaManutencao)}</td>
+                    <td className="px-3 py-2 text-gray-600">{formatarData(item.dataProximaManutencao)}</td>
+                    <td className="px-3 py-2 text-gray-600">{formatarData(item.dataVencimentoGarantia)}</td>
+                    <td className="px-3 py-2 text-gray-600 truncate max-w-[120px]" title={item.fornecedor}>
+                      {item.fornecedor || '-'}
+                    </td>
+                    <td className="px-3 py-2">{renderStatusBadge(item.status)}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => abrirModalEditar(item)}
+                          className="p-1 text-blue-600 hover:bg-blue-100 rounded"
+                          title="Editar"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => excluirItem(item.id)}
+                          className="p-1 text-red-600 hover:bg-red-100 rounded"
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
         </div>
+        <div className="px-4 py-2 border-t border-gray-200 text-sm text-gray-600">
+          {itensFiltrados.length} item(ns) encontrado(s)
+        </div>
       </div>
+
+      {/* Modal de Edição/Criação */}
+      {modalAberto && itemEditando && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">
+                {modoEdicao ? 'Editar Registro' : 'Novo Registro de Manutenção'}
+              </h2>
+              <button onClick={fecharModal} className="p-1 hover:bg-gray-100 rounded">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              {/* Condomínio e Tipo */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Condomínio</label>
+                  <select
+                    value={itemEditando.idCondominio}
+                    onChange={e => {
+                      const cond = condominios.find(c => c.id === e.target.value)
+                      setItemEditando({
+                        ...itemEditando,
+                        idCondominio: e.target.value,
+                        nomeCondominio: cond?.nome || ''
+                      })
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {condominios.map(c => (
+                      <option key={c.id} value={c.id}>{c.nome}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Item</label>
+                  <select
+                    value={itemEditando.tipoItemId}
+                    onChange={e => {
+                      const tipo = todosTipos.find(t => t.id === e.target.value)
+                      if (tipo) {
+                        setItemEditando({
+                          ...itemEditando,
+                          tipoItemId: tipo.id,
+                          tipoItemNome: tipo.nome,
+                          categoria: tipo.categoria,
+                          periodicidadeMeses: tipo.periodicidadeMeses,
+                          observacoes: itemEditando.observacoes || tipo.descricaoPadrao
+                        })
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <optgroup label="Equipamentos">
+                      {todosTipos.filter(t => t.categoria === 'equipamento').map(t => (
+                        <option key={t.id} value={t.id}>{t.nome}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Estruturas">
+                      {todosTipos.filter(t => t.categoria === 'estrutura').map(t => (
+                        <option key={t.id} value={t.id}>{t.nome}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Administrativo">
+                      {todosTipos.filter(t => t.categoria === 'administrativo').map(t => (
+                        <option key={t.id} value={t.id}>{t.nome}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
+              </div>
+              
+              {/* Datas */}
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Última Manutenção</label>
+                  <input
+                    type="date"
+                    value={itemEditando.dataUltimaManutencao || ''}
+                    onChange={e => {
+                      const dataUltima = e.target.value
+                      // Calcular próxima manutenção automaticamente
+                      let dataProxima = ''
+                      if (dataUltima) {
+                        const d = new Date(dataUltima)
+                        d.setMonth(d.getMonth() + itemEditando.periodicidadeMeses)
+                        dataProxima = d.toISOString().split('T')[0]
+                      }
+                      setItemEditando({
+                        ...itemEditando,
+                        dataUltimaManutencao: dataUltima,
+                        dataProximaManutencao: dataProxima
+                      })
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Próxima Manutenção</label>
+                  <input
+                    type="date"
+                    value={itemEditando.dataProximaManutencao || ''}
+                    onChange={e => setItemEditando({...itemEditando, dataProximaManutencao: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Vencimento Garantia</label>
+                  <input
+                    type="date"
+                    value={itemEditando.dataVencimentoGarantia || ''}
+                    onChange={e => setItemEditando({...itemEditando, dataVencimentoGarantia: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              
+              {/* Fornecedor */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Fornecedor / Empresa</label>
+                  <input
+                    type="text"
+                    value={itemEditando.fornecedor}
+                    onChange={e => setItemEditando({...itemEditando, fornecedor: e.target.value})}
+                    placeholder="Nome do fornecedor"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Telefone Contato</label>
+                  <input
+                    type="text"
+                    value={itemEditando.telefoneContato}
+                    onChange={e => setItemEditando({...itemEditando, telefoneContato: e.target.value})}
+                    placeholder="(11) 99999-9999"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              
+              {/* Contrato */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Número do Contrato</label>
+                  <input
+                    type="text"
+                    value={itemEditando.numeroContrato}
+                    onChange={e => setItemEditando({...itemEditando, numeroContrato: e.target.value})}
+                    placeholder="Nº do contrato"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Valor do Contrato</label>
+                  <input
+                    type="number"
+                    value={itemEditando.valorContrato}
+                    onChange={e => setItemEditando({...itemEditando, valorContrato: parseFloat(e.target.value) || 0})}
+                    placeholder="0,00"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              
+              {/* Observações */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
+                <textarea
+                  value={itemEditando.observacoes}
+                  onChange={e => setItemEditando({...itemEditando, observacoes: e.target.value})}
+                  rows={3}
+                  placeholder="Observações sobre a manutenção..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            
+            <div className="flex items-center justify-end gap-3 p-4 border-t border-gray-200">
+              <button
+                onClick={fecharModal}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={salvarItem}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+              >
+                <Save className="w-4 h-4" />
+                Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Gerenciamento de Tipos */}
+      {modalTiposAberto && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <List className="w-5 h-5" />
+                Gerenciar Tipos de Itens
+              </h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={abrirModalNovoTipo}
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm"
+                >
+                  <Plus className="w-4 h-4" />
+                  Novo Item
+                </button>
+                <button onClick={fecharModalTipos} className="p-1 hover:bg-gray-100 rounded">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+            </div>
+            
+            {tipoEditando ? (
+              // Formulário de edição/criação de tipo
+              <div className="p-4 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Nome do Item *</label>
+                    <input
+                      type="text"
+                      value={tipoEditando.nome}
+                      onChange={e => setTipoEditando({...tipoEditando, nome: e.target.value})}
+                      placeholder="Ex: Sistema de Ar Condicionado"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
+                    <select
+                      value={tipoEditando.categoria}
+                      onChange={e => setTipoEditando({...tipoEditando, categoria: e.target.value as CategoriaItem})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="equipamento">Equipamento</option>
+                      <option value="estrutura">Estrutura</option>
+                      <option value="administrativo">Administrativo</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Periodicidade (meses)</label>
+                    <input
+                      type="number"
+                      value={tipoEditando.periodicidadeMeses}
+                      onChange={e => setTipoEditando({...tipoEditando, periodicidadeMeses: parseInt(e.target.value) || 6})}
+                      min="1"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="flex items-center pt-7">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tipoEditando.obrigatorio}
+                        onChange={e => setTipoEditando({...tipoEditando, obrigatorio: e.target.checked})}
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-700">Item obrigatório para condomínios</span>
+                    </label>
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Descrição Padrão</label>
+                  <textarea
+                    value={tipoEditando.descricaoPadrao}
+                    onChange={e => setTipoEditando({...tipoEditando, descricaoPadrao: e.target.value})}
+                    rows={3}
+                    placeholder="Descrição padrão que aparecerá ao criar registros deste tipo..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
+                  <button
+                    onClick={fecharModalTipos}
+                    className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={salvarTipo}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                  >
+                    <Save className="w-4 h-4" />
+                    Salvar Tipo
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Lista de tipos
+              <div className="p-4">
+                <div className="mb-4 text-sm text-gray-600">
+                  <p className="mb-2"><strong>Tipos Padrão:</strong> Não podem ser editados ou excluídos</p>
+                  <p><strong>Tipos Customizados:</strong> Podem ser editados e excluídos (se não estiverem em uso)</p>
+                </div>
+                
+                <div className="space-y-4">
+                  {/* Tipos Padrão */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-700 mb-2">Tipos Padrão ({TIPOS_ITENS_MANUTENCAO.length})</h3>
+                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Nome</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Categoria</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Periodicidade</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Obrigatório</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {TIPOS_ITENS_MANUTENCAO.map(tipo => (
+                            <tr key={tipo.id} className="hover:bg-gray-50">
+                              <td className="px-3 py-2 text-gray-900">{tipo.nome}</td>
+                              <td className="px-3 py-2">
+                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                  tipo.categoria === 'equipamento' ? 'bg-blue-100 text-blue-800' :
+                                  tipo.categoria === 'estrutura' ? 'bg-purple-100 text-purple-800' :
+                                  'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {tipo.categoria}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-gray-600">{tipo.periodicidadeMeses} meses</td>
+                              <td className="px-3 py-2">
+                                {tipo.obrigatorio ? (
+                                  <span className="text-green-600 font-medium">Sim</span>
+                                ) : (
+                                  <span className="text-gray-400">Não</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  
+                  {/* Tipos Customizados */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-700 mb-2">Tipos Customizados ({tiposCustomizados.length})</h3>
+                    {tiposCustomizados.length === 0 ? (
+                      <div className="border border-gray-200 rounded-lg p-8 text-center text-gray-500">
+                        <p>Nenhum tipo customizado criado ainda.</p>
+                        <p className="text-sm mt-1">Clique em "Novo Item" para criar um novo tipo.</p>
+                      </div>
+                    ) : (
+                      <div className="border border-gray-200 rounded-lg overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Nome</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Categoria</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Periodicidade</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Obrigatório</th>
+                              <th className="px-3 py-2 text-center font-semibold text-gray-700">Ações</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {tiposCustomizados.map(tipo => (
+                              <tr key={tipo.id} className="hover:bg-gray-50">
+                                <td className="px-3 py-2 text-gray-900">{tipo.nome}</td>
+                                <td className="px-3 py-2">
+                                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                    tipo.categoria === 'equipamento' ? 'bg-blue-100 text-blue-800' :
+                                    tipo.categoria === 'estrutura' ? 'bg-purple-100 text-purple-800' :
+                                    'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {tipo.categoria}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-gray-600">{tipo.periodicidadeMeses} meses</td>
+                                <td className="px-3 py-2">
+                                  {tipo.obrigatorio ? (
+                                    <span className="text-green-600 font-medium">Sim</span>
+                                  ) : (
+                                    <span className="text-gray-400">Não</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button
+                                      onClick={() => abrirModalEditarTipo(tipo)}
+                                      className="p-1 text-blue-600 hover:bg-blue-100 rounded"
+                                      title="Editar"
+                                    >
+                                      <Edit2 className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => excluirTipo(tipo.id)}
+                                      className="p-1 text-red-600 hover:bg-red-100 rounded"
+                                      title="Excluir"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
