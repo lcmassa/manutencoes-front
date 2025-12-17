@@ -396,17 +396,24 @@ export function Manutencoes() {
       setError(null)
       
       try {
-        // Tentar carregar do banco primeiro
+        // Tentar carregar do banco primeiro (silenciosamente)
         let dadosDoBanco: { tipos: any[], itens: any[], excluidos: string[] } | null = null
         try {
           dadosDoBanco = await ManutencoesDB.buscarTodosDados(companyId)
-          if (dadosDoBanco.tipos.length > 0 || dadosDoBanco.itens.length > 0) {
+          if (dadosDoBanco && (dadosDoBanco.tipos.length > 0 || dadosDoBanco.itens.length > 0)) {
             console.log('[Manutencoes] Dados encontrados no banco, usando-os')
           } else {
             dadosDoBanco = null
+            console.log('[Manutencoes] Nenhum dado no banco, usando localStorage')
           }
-        } catch (err) {
-          console.log('[Manutencoes] Erro ao buscar do banco, usando localStorage:', err)
+        } catch (err: any) {
+          // Ignorar erros 422, 404, 501 - endpoints podem não existir ainda
+          const status = err?.response?.status
+          if (status === 404 || status === 422 || status === 501) {
+            console.log('[Manutencoes] Endpoints de banco não disponíveis, usando apenas localStorage')
+          } else {
+            console.log('[Manutencoes] Erro ao buscar do banco, usando localStorage:', err)
+          }
           dadosDoBanco = null
         }
         
@@ -487,8 +494,25 @@ export function Manutencoes() {
         salvarDados(itensLocal)
       } catch (err: any) {
         if (cancelled) return
+        
+        // Ignorar erros 422, 404, 501 - endpoints de banco podem não existir ainda
+        const status = err?.response?.status
+        if (status === 404 || status === 422 || status === 501) {
+          console.log('[Manutencoes] Endpoints de banco não disponíveis, continuando com localStorage')
+          // Limpar qualquer erro anterior e não setar novo erro
+          setError(null)
+          // Continuar com localStorage normalmente
+          return
+        }
+        
         console.error('[Manutencoes] Erro ao carregar:', err)
-        setError(err?.message || 'Erro ao carregar dados')
+        // Só setar erro na UI para erros reais (não relacionados ao banco)
+        if (err?.response?.status !== 422 && err?.response?.status !== 404 && err?.response?.status !== 501) {
+          setError(err?.message || 'Erro ao carregar dados')
+        } else {
+          // Limpar erro se for relacionado a endpoints não disponíveis
+          setError(null)
+        }
       } finally {
         if (!cancelled) {
           setLoading(false)
@@ -933,7 +957,17 @@ export function Manutencoes() {
     )
   }
 
-  if (error) {
+  // Não exibir erro se for relacionado a endpoints não disponíveis (422, 404, 501)
+  const isErrorFromUnavailableEndpoint = error && (
+    error.includes('422') || 
+    error.includes('404') || 
+    error.includes('501') ||
+    error.includes('Unprocessable Entity') ||
+    error.includes('Not Found') ||
+    error.includes('Not Implemented')
+  )
+  
+  if (error && !isErrorFromUnavailableEndpoint) {
     return (
       <div className="p-6">
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
