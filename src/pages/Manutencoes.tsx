@@ -426,6 +426,31 @@ export function Manutencoes() {
   }, [itens, filtroCondominio, filtroCategoria, filtroStatus, filtroBusca])
 
   // =====================================================
+  // AGRUPAR ITENS POR CONDOMÍNIO
+  // =====================================================
+  
+  const itensAgrupadosPorCondominio = useMemo(() => {
+    const agrupados = new Map<string, ItemManutencao[]>()
+    
+    itensFiltrados.forEach(item => {
+      const key = item.idCondominio
+      if (!agrupados.has(key)) {
+        agrupados.set(key, [])
+      }
+      agrupados.get(key)!.push(item)
+    })
+    
+    // Converter para array e ordenar por nome do condomínio
+    return Array.from(agrupados.entries())
+      .map(([idCondominio, itens]) => ({
+        idCondominio,
+        nomeCondominio: itens[0].nomeCondominio,
+        itens: itens.sort((a, b) => a.tipoItemNome.localeCompare(b.tipoItemNome))
+      }))
+      .sort((a, b) => a.nomeCondominio.localeCompare(b.nomeCondominio))
+  }, [itensFiltrados])
+
+  // =====================================================
   // ESTATÍSTICAS
   // =====================================================
   
@@ -753,79 +778,115 @@ export function Manutencoes() {
         </div>
       </div>
 
-      {/* Lista de Itens */}
+      {/* Lista de Itens Agrupados por Condomínio */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-3 py-2 text-left font-semibold text-gray-700">Condomínio</th>
-                <th className="px-3 py-2 text-left font-semibold text-gray-700">Item</th>
-                <th className="px-3 py-2 text-left font-semibold text-gray-700">Categoria</th>
-                <th className="px-3 py-2 text-left font-semibold text-gray-700">Última Manut.</th>
-                <th className="px-3 py-2 text-left font-semibold text-gray-700">Próxima</th>
-                <th className="px-3 py-2 text-left font-semibold text-gray-700">Garantia</th>
-                <th className="px-3 py-2 text-left font-semibold text-gray-700">Fornecedor</th>
-                <th className="px-3 py-2 text-left font-semibold text-gray-700">Status</th>
-                <th className="px-3 py-2 text-center font-semibold text-gray-700">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {itensFiltrados.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-3 py-8 text-center text-gray-500">
-                    Nenhum item encontrado com os filtros aplicados.
-                  </td>
-                </tr>
-              ) : (
-                itensFiltrados.map(item => (
-                  <tr key={item.id} className={`hover:bg-gray-50 ${item.status === 'vencido' ? 'bg-red-50' : ''}`}>
-                    <td className="px-3 py-2 font-medium text-gray-900 truncate max-w-[150px]" title={item.nomeCondominio}>
-                      {item.nomeCondominio}
-                    </td>
-                    <td className="px-3 py-2 text-gray-700">{item.tipoItemNome}</td>
-                    <td className="px-3 py-2">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                        item.categoria === 'equipamento' ? 'bg-blue-100 text-blue-800' :
-                        item.categoria === 'estrutura' ? 'bg-purple-100 text-purple-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {item.categoria === 'equipamento' ? 'Equip.' : item.categoria === 'estrutura' ? 'Estrut.' : 'Admin.'}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-gray-600">{formatarData(item.dataUltimaManutencao)}</td>
-                    <td className="px-3 py-2 text-gray-600">{formatarData(item.dataProximaManutencao)}</td>
-                    <td className="px-3 py-2 text-gray-600">{formatarData(item.dataVencimentoGarantia)}</td>
-                    <td className="px-3 py-2 text-gray-600 truncate max-w-[120px]" title={item.fornecedor}>
-                      {item.fornecedor || '-'}
-                    </td>
-                    <td className="px-3 py-2">{renderStatusBadge(item.status)}</td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => abrirModalEditar(item)}
-                          className="p-1 text-blue-600 hover:bg-blue-100 rounded"
-                          title="Editar"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => excluirItem(item.id)}
-                          className="p-1 text-red-600 hover:bg-red-100 rounded"
-                          title="Excluir"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+          {itensFiltrados.length === 0 ? (
+            <div className="px-4 py-8 text-center text-gray-500">
+              Nenhum item encontrado com os filtros aplicados.
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-200">
+              {itensAgrupadosPorCondominio.map((grupo) => {
+                const vencidos = grupo.itens.filter(i => i.status === 'vencido').length
+                const proximos = grupo.itens.filter(i => i.status === 'proximo_vencimento').length
+                
+                return (
+                  <div key={grupo.idCondominio} className="divide-y divide-gray-100">
+                    {/* Cabeçalho do Condomínio */}
+                    <div className={`bg-gradient-to-r from-blue-50 to-blue-100 border-l-4 border-blue-600 px-4 py-3 sticky top-0 z-10 ${
+                      vencidos > 0 ? 'from-red-50 to-red-100 border-red-600' : 
+                      proximos > 0 ? 'from-yellow-50 to-yellow-100 border-yellow-600' : ''
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <Building2 className="w-5 h-5 text-blue-700" />
+                          <h3 className="text-base font-bold text-gray-900">{grupo.nomeCondominio}</h3>
+                          <span className="text-xs text-gray-600 font-medium">
+                            ({grupo.itens.length} {grupo.itens.length === 1 ? 'item' : 'itens'})
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {vencidos > 0 && (
+                            <span className="px-2 py-1 bg-red-200 text-red-800 rounded-full text-xs font-medium">
+                              {vencidos} vencido{vencidos > 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {proximos > 0 && (
+                            <span className="px-2 py-1 bg-yellow-200 text-yellow-800 rounded-full text-xs font-medium">
+                              {proximos} próximo{proximos > 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                    </div>
+                    
+                    {/* Tabela de Itens do Condomínio */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Item</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Categoria</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Última Manut.</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Próxima</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Garantia</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Fornecedor</th>
+                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Status</th>
+                            <th className="px-3 py-2 text-center font-semibold text-gray-700">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {grupo.itens.map(item => (
+                            <tr key={item.id} className={`hover:bg-gray-50 ${item.status === 'vencido' ? 'bg-red-50' : ''}`}>
+                              <td className="px-3 py-2 font-medium text-gray-900">{item.tipoItemNome}</td>
+                              <td className="px-3 py-2">
+                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                  item.categoria === 'equipamento' ? 'bg-blue-100 text-blue-800' :
+                                  item.categoria === 'estrutura' ? 'bg-purple-100 text-purple-800' :
+                                  'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {item.categoria === 'equipamento' ? 'Equip.' : item.categoria === 'estrutura' ? 'Estrut.' : 'Admin.'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-gray-600">{formatarData(item.dataUltimaManutencao)}</td>
+                              <td className="px-3 py-2 text-gray-600">{formatarData(item.dataProximaManutencao)}</td>
+                              <td className="px-3 py-2 text-gray-600">{formatarData(item.dataVencimentoGarantia)}</td>
+                              <td className="px-3 py-2 text-gray-600 truncate max-w-[120px]" title={item.fornecedor}>
+                                {item.fornecedor || '-'}
+                              </td>
+                              <td className="px-3 py-2">{renderStatusBadge(item.status)}</td>
+                              <td className="px-3 py-2">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    onClick={() => abrirModalEditar(item)}
+                                    className="p-1 text-blue-600 hover:bg-blue-100 rounded"
+                                    title="Editar"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => excluirItem(item.id)}
+                                    className="p-1 text-red-600 hover:bg-red-100 rounded"
+                                    title="Excluir"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
         <div className="px-4 py-2 border-t border-gray-200 text-sm text-gray-600">
-          {itensFiltrados.length} item(ns) encontrado(s)
+          {itensFiltrados.length} item(ns) encontrado(s) em {itensAgrupadosPorCondominio.length} condomínio(s)
         </div>
       </div>
 
