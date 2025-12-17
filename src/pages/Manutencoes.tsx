@@ -124,6 +124,7 @@ const TIPOS_ITENS_MANUTENCAO: TipoItemManutencao[] = [
 
 const STORAGE_KEY = 'manutencoes_controle_db'
 const STORAGE_KEY_TIPOS = 'manutencoes_tipos_customizados_db'
+const STORAGE_KEY_EXCLUIDOS = 'manutencoes_itens_excluidos_db'
 
 // =====================================================
 // FUNÇÕES UTILITÁRIAS
@@ -169,6 +170,34 @@ function salvarTiposCustomizados(tipos: TipoItemManutencao[]): void {
   } catch (error) {
     console.error('[Manutencoes] Erro ao salvar tipos customizados:', error)
   }
+}
+
+function carregarItensExcluidos(): Set<string> {
+  try {
+    const data = localStorage.getItem(STORAGE_KEY_EXCLUIDOS)
+    if (!data) return new Set()
+    const array = JSON.parse(data)
+    return new Set(array)
+  } catch (error) {
+    console.error('[Manutencoes] Erro ao carregar itens excluídos:', error)
+    return new Set()
+  }
+}
+
+function salvarItensExcluidos(excluidos: Set<string>): void {
+  try {
+    const array = Array.from(excluidos)
+    localStorage.setItem(STORAGE_KEY_EXCLUIDOS, JSON.stringify(array))
+  } catch (error) {
+    console.error('[Manutencoes] Erro ao salvar itens excluídos:', error)
+  }
+}
+
+function adicionarItemExcluido(idCondominio: string, tipoItemId: string): void {
+  const excluidos = carregarItensExcluidos()
+  const chave = `${idCondominio}_${tipoItemId}`
+  excluidos.add(chave)
+  salvarItensExcluidos(excluidos)
 }
 
 function calcularStatus(item: ItemManutencao): StatusManutencao {
@@ -301,12 +330,14 @@ export function Manutencoes() {
   const inicializarItensPadrao = useCallback((condominiosList: Condominio[], itensExistentes: ItemManutencao[], tiposDisponiveis: TipoItemManutencao[]): ItemManutencao[] => {
     const novosItens: ItemManutencao[] = [...itensExistentes]
     const itensExistentesSet = new Set(itensExistentes.map(i => `${i.idCondominio}_${i.tipoItemId}`))
+    const itensExcluidos = carregarItensExcluidos()
     
-    // Para cada condomínio, criar itens obrigatórios que não existem
+    // Para cada condomínio, criar itens obrigatórios que não existem E não foram excluídos permanentemente
     condominiosList.forEach(cond => {
       tiposDisponiveis.filter(tipo => tipo.obrigatorio).forEach(tipo => {
         const chave = `${cond.id}_${tipo.id}`
-        if (!itensExistentesSet.has(chave)) {
+        // Só criar se não existe E não foi excluído permanentemente
+        if (!itensExistentesSet.has(chave) && !itensExcluidos.has(chave)) {
           novosItens.push({
             id: gerarId(),
             idCondominio: cond.id,
@@ -606,8 +637,15 @@ export function Manutencoes() {
   }
   
   const excluirItem = (id: string) => {
-    if (!confirm('Deseja realmente excluir este item?')) return
+    if (!confirm('Deseja realmente excluir este item permanentemente?')) return
     
+    const item = itens.find(i => i.id === id)
+    if (!item) return
+    
+    // Adicionar à lista de exclusões permanentes
+    adicionarItemExcluido(item.idCondominio, item.tipoItemId)
+    
+    // Remover do estado e salvar
     const novosItens = itens.filter(i => i.id !== id)
     setItens(novosItens)
     salvarDados(novosItens)
