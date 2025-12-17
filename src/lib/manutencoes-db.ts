@@ -63,6 +63,32 @@ export type ItemExcluidoDB = {
 const API_BASE_URL = '/api/manutencoes'
 
 // =====================================================
+// FUNÇÃO AUXILIAR PARA TRATAR ERROS
+// =====================================================
+
+/**
+ * Verifica se o erro indica que o endpoint não está disponível
+ * Retorna true se o erro deve ser tratado silenciosamente
+ */
+function isEndpointUnavailable(error: any): boolean {
+  const status = error?.response?.status
+  // 404 = Not Found, 422 = Unprocessable Entity, 501 = Not Implemented
+  return status === 404 || status === 422 || status === 501
+}
+
+/**
+ * Trata erro de forma silenciosa se o endpoint não estiver disponível
+ */
+function handleErrorSilently(error: any, operation: string): void {
+  if (isEndpointUnavailable(error)) {
+    const status = error?.response?.status
+    console.log(`[ManutencoesDB] ⚠️ Endpoint não disponível (${status}) para ${operation}, usando apenas localStorage`)
+    return
+  }
+  console.error(`[ManutencoesDB] ❌ Erro em ${operation}:`, error)
+}
+
+// =====================================================
 // FUNÇÕES DE SINCRONIZAÇÃO - TIPOS
 // =====================================================
 
@@ -95,8 +121,8 @@ export async function sincronizarTiposCustomizados(
     
     console.log(`[ManutencoesDB] ✅ Tipos sincronizados:`, response.data)
   } catch (error: any) {
-    console.error('[ManutencoesDB] ❌ Erro ao sincronizar tipos:', error)
-    throw new Error(`Erro ao sincronizar tipos: ${error.message}`)
+    handleErrorSilently(error, 'sincronizarTiposCustomizados')
+    // Não lançar erro para não quebrar o fluxo
   }
 }
 
@@ -119,7 +145,7 @@ export async function buscarTiposCustomizados(companyId: string): Promise<TipoIt
     console.log(`[ManutencoesDB] ✅ ${response.data.length} tipos encontrados`)
     return response.data
   } catch (error: any) {
-    console.error('[ManutencoesDB] ❌ Erro ao buscar tipos:', error)
+    handleErrorSilently(error, 'buscarTiposCustomizados')
     // Retornar array vazio em caso de erro (fallback para localStorage)
     return []
   }
@@ -158,8 +184,8 @@ export async function sincronizarItensManutencao(
     
     console.log(`[ManutencoesDB] ✅ Itens sincronizados:`, response.data)
   } catch (error: any) {
-    console.error('[ManutencoesDB] ❌ Erro ao sincronizar itens:', error)
-    throw new Error(`Erro ao sincronizar itens: ${error.message}`)
+    handleErrorSilently(error, 'sincronizarItensManutencao')
+    // Não lançar erro para não quebrar o fluxo
   }
 }
 
@@ -184,7 +210,7 @@ export async function buscarItensManutencao(companyId: string, idCondominio?: st
     console.log(`[ManutencoesDB] ✅ ${response.data.length} itens encontrados`)
     return response.data
   } catch (error: any) {
-    console.error('[ManutencoesDB] ❌ Erro ao buscar itens:', error)
+    handleErrorSilently(error, 'buscarItensManutencao')
     // Retornar array vazio em caso de erro (fallback para localStorage)
     return []
   }
@@ -218,7 +244,11 @@ export async function salvarItemManutencao(
     console.log(`[ManutencoesDB] ✅ Item salvo`)
     return response.data
   } catch (error: any) {
-    console.error('[ManutencoesDB] ❌ Erro ao salvar item:', error)
+    handleErrorSilently(error, 'salvarItemManutencao')
+    // Retornar o item original se o endpoint não estiver disponível
+    if (isEndpointUnavailable(error)) {
+      return item
+    }
     throw new Error(`Erro ao salvar item: ${error.message}`)
   }
 }
@@ -251,7 +281,11 @@ export async function atualizarItemManutencao(
     console.log(`[ManutencoesDB] ✅ Item atualizado`)
     return response.data
   } catch (error: any) {
-    console.error('[ManutencoesDB] ❌ Erro ao atualizar item:', error)
+    handleErrorSilently(error, 'atualizarItemManutencao')
+    // Retornar o item original se o endpoint não estiver disponível
+    if (isEndpointUnavailable(error)) {
+      return item
+    }
     throw new Error(`Erro ao atualizar item: ${error.message}`)
   }
 }
@@ -278,7 +312,11 @@ export async function excluirItemManutencao(
     
     console.log(`[ManutencoesDB] ✅ Item excluído`)
   } catch (error: any) {
-    console.error('[ManutencoesDB] ❌ Erro ao excluir item:', error)
+    handleErrorSilently(error, 'excluirItemManutencao')
+    // Não lançar erro se o endpoint não estiver disponível
+    if (isEndpointUnavailable(error)) {
+      return
+    }
     throw new Error(`Erro ao excluir item: ${error.message}`)
   }
 }
@@ -316,8 +354,8 @@ export async function sincronizarItensExcluidos(
     
     console.log(`[ManutencoesDB] ✅ Itens excluídos sincronizados`)
   } catch (error: any) {
-    console.error('[ManutencoesDB] ❌ Erro ao sincronizar excluídos:', error)
-    throw new Error(`Erro ao sincronizar excluídos: ${error.message}`)
+    handleErrorSilently(error, 'sincronizarItensExcluidos')
+    // Não lançar erro para não quebrar o fluxo
   }
 }
 
@@ -341,7 +379,7 @@ export async function buscarItensExcluidos(companyId: string): Promise<string[]>
     console.log(`[ManutencoesDB] ✅ ${chaves.length} itens excluídos encontrados`)
     return chaves
   } catch (error: any) {
-    console.error('[ManutencoesDB] ❌ Erro ao buscar excluídos:', error)
+    handleErrorSilently(error, 'buscarItensExcluidos')
     // Retornar array vazio em caso de erro (fallback para localStorage)
     return []
   }
@@ -377,7 +415,11 @@ export async function registrarItemExcluido(
     
     console.log(`[ManutencoesDB] ✅ Item excluído registrado`)
   } catch (error: any) {
-    console.error('[ManutencoesDB] ❌ Erro ao registrar excluído:', error)
+    handleErrorSilently(error, 'registrarItemExcluido')
+    // Não lançar erro se o endpoint não estiver disponível
+    if (isEndpointUnavailable(error)) {
+      return
+    }
     throw new Error(`Erro ao registrar item excluído: ${error.message}`)
   }
 }
@@ -424,8 +466,8 @@ export async function sincronizarTodosDados(
     
     console.log(`[ManutencoesDB] ✅ Sincronização completa concluída`)
   } catch (error: any) {
-    console.error('[ManutencoesDB] ❌ Erro na sincronização completa:', error)
-    throw error
+    handleErrorSilently(error, 'sincronizarTodosDados')
+    // Não lançar erro para não quebrar o fluxo
   }
 }
 
@@ -453,7 +495,8 @@ export async function buscarTodosDados(companyId: string): Promise<{
     
     return { tipos, itens, excluidos }
   } catch (error: any) {
-    console.error('[ManutencoesDB] ❌ Erro ao buscar dados:', error)
-    throw error
+    handleErrorSilently(error, 'buscarTodosDados')
+    // Retornar dados vazios em caso de erro (fallback para localStorage)
+    return { tipos: [], itens: [], excluidos: [] }
   }
 }
