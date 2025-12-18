@@ -117,14 +117,34 @@ export function SidebarMenu() {
   return (
     <aside className="fixed left-0 top-0 h-screen w-[200px] bg-indigo-900 text-white overflow-y-auto z-50">
       <div className="p-4">
-        {/* Logo ou título */}
-        <div className="mb-6">
-          <h2 className="text-xs font-bold text-white/90">Menu</h2>
+        {/* Logo Superlogica e Massa */}
+        <div className="mb-4 pb-4 border-b border-white/30">
+          <div className="flex items-center justify-center mb-2" style={{ height: '48px' }}>
+            <img 
+              src="/super.png" 
+              alt="Superlógica" 
+              className="h-full w-auto max-w-full object-contain"
+              style={{ maxHeight: '48px' }}
+              onError={(e) => {
+                const target = e.target as HTMLImageElement
+                target.style.display = 'none'
+                const fallback = document.createElement('div')
+                fallback.className = 'text-white font-bold text-lg'
+                fallback.textContent = 'Superlógica'
+                target.parentElement?.appendChild(fallback)
+              }}
+            />
+          </div>
+          <div className="text-center">
+            <p className="text-white text-xs font-mono">
+              Σα$$α
+            </p>
+          </div>
         </div>
         
         {/* Seção CONTROLAR */}
         <div className="mb-4">
-          <h3 className="text-[0.5rem] font-semibold text-white/70 uppercase tracking-wider mb-2 px-2">
+          <h3 className="text-[0.5rem] font-semibold text-yellow-400 uppercase tracking-wider mb-2 px-2">
             Controlar
           </h3>
           <nav className="space-y-1">
@@ -134,7 +154,7 @@ export function SidebarMenu() {
         
         {/* Seção ACOMPANHAR */}
         <div className="mb-4">
-          <h3 className="text-[0.5rem] font-semibold text-white/70 uppercase tracking-wider mb-2 px-2">
+          <h3 className="text-[0.5rem] font-semibold text-yellow-400 uppercase tracking-wider mb-2 px-2">
             Acompanhar
           </h3>
           <nav className="space-y-1">
@@ -147,7 +167,7 @@ export function SidebarMenu() {
         
         {/* Seção OUTROS */}
         <div className="mb-4">
-          <h3 className="text-[0.5rem] font-semibold text-white/70 uppercase tracking-wider mb-2 px-2">
+          <h3 className="text-[0.5rem] font-semibold text-yellow-400 uppercase tracking-wider mb-2 px-2">
             Outros
           </h3>
           <nav className="space-y-1">
