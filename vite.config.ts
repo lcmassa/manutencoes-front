@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig } from 'vite'
 import { fileURLToPath } from 'url'
 import path from 'path'
 import react from '@vitejs/plugin-react'
@@ -8,9 +8,6 @@ import os from 'os'
 const apiUrl = process.env.VITE_API_URL || 'https://iap-gateway.applications.hml.superlogica.tech'
 
 export default defineConfig({
-  test: {
-    passWithNoTests: true,
-  },
   plugins: [
     react(),
     {
@@ -352,11 +349,6 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     host: true, // Permite acesso de qualquer interface de rede
-    headers: {
-      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-      'Pragma': 'no-cache',
-      'Expires': '0',
-    },
     proxy: {
       '/api': {
         target: apiUrl,

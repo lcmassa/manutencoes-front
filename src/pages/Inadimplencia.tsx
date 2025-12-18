@@ -295,20 +295,17 @@ async function buscarInadimplenciasPorCondominio(
       // Se usar apenasResumoInad=1, retorna apenas resumo sem detalhes das unidades
       // NOTA: Removendo filtros restritivos (semAcordo, semProcesso, cobrancaDoTipo) 
       // para incluir TODAS as inadimplências, conforme o CSV mostra que existem
-      // IMPORTANTE: comDadosDaReceita=1 garante que a API retorne dados das receitas
-      // Mesmo condomínios com inadimplência devem ter receitas não recebidas
       const params = new URLSearchParams({
       comValoresAtualizados: '0',
       comValoresAtualizadosPorComposicao: '0', // Conforme documentação
       apenasResumoInad: '0', // 0 = dados detalhados, 1 = apenas resumo (sem detalhes)
       posicaoEm: dataAtualFormatada, // DD/MM/YYYY - data de referência para a posição
       idCondominio: idCondominio.trim(),
-      comDadosDaReceita: '1', // CRÍTICO: Garante que receitas sejam retornadas
+      comDadosDaReceita: '1',
       itensPorPagina: String(itensPorPagina),
       pagina: String(pagina)
       // Removidos semAcordo, semProcesso e cobrancaDoTipo para incluir todas as inadimplências
       // O CSV mostra que há unidades com processos e diferentes tipos de cobrança
-      // IMPORTANTE: Não usar filtros que excluam receitas não recebidas quando há inadimplência
     })
 
     const url = `/api/condominios/superlogica/inadimplencia/index?${params.toString()}`
@@ -457,11 +454,6 @@ async function buscarInadimplenciasPorCondominio(
       if (!dadosArray || dadosArray.length === 0) {
         if (pagina === 1) {
           logger.error(`[Inadimplencia] ❌ Nenhum dado encontrado na página ${pagina} do condomínio ${idCondominio}`)
-          logger.error(`[Inadimplencia] ❌ IMPORTANTE: Mesmo condomínios com inadimplência devem retornar receitas não recebidas`)
-          logger.error(`[Inadimplencia] ❌ Se a API não retorna dados, pode ser:`)
-          logger.error(`[Inadimplencia] ❌   1. O endpoint de inadimplência não retorna receitas quando há inadimplência`)
-          logger.error(`[Inadimplencia] ❌   2. Os parâmetros estão incorretos (verificar comDadosDaReceita=1)`)
-          logger.error(`[Inadimplencia] ❌   3. A estrutura da resposta mudou`)
           
           // Log detalhado da estrutura completa da resposta para debug
           const estruturaCompleta = data && typeof data === 'object' ? JSON.stringify(data, null, 2) : String(data)
@@ -564,22 +556,10 @@ async function buscarInadimplenciasPorCondominio(
           errorMessage,
           errorData: errorData ? JSON.stringify(errorData).substring(0, 1000) : 'N/A',
           dataAtualFormatada,
-          idCondominio,
-          companyId: companyId || 'null'
+          idCondominio
         })
         
-        // IMPORTANTE: Para condomínios específicos, lançar erro para mostrar ao usuário
-        // Para processamento em batch, retornar vazio para continuar com outros condomínios
-        if (isSingleCondominio && pagina === 1) {
-          // Se for busca de um único condomínio e erro na primeira página, lançar erro
-          // para que o usuário veja a mensagem de erro
-          const erroDetalhado = new Error(`Erro de validação (422) ao buscar inadimplências para o condomínio selecionado. ${errorMessage}`)
-          ;(erroDetalhado as any).response = error?.response
-          ;(erroDetalhado as any).status = 422
-          throw erroDetalhado
-        }
-        
-        // IMPORTANTE: Não lançar erro na primeira página para batch - isso faz o condomínio ser ignorado completamente
+        // IMPORTANTE: Não lançar erro na primeira página - isso faz o condomínio ser ignorado completamente
         // Em vez disso, logar o erro e retornar unidades já encontradas (ou vazio se primeira página)
         // Isso permite que outros condomínios continuem sendo processados
         if (pagina === 1) {
@@ -1013,10 +993,7 @@ export function Inadimplencia() {
         } else if (err?.response?.status === 502 || err?.response?.status === 504) {
           mensagemErroCondominios = 'Erro de gateway (502/504).\n\nO servidor pode estar temporariamente indisponível ou demorando para responder.\n\nAções sugeridas:\n• Aguarde alguns instantes e tente novamente\n• Verifique sua conexão com a internet\n• Se o problema persistir, entre em contato com o suporte'
         } else if (err?.response?.status === 422) {
-          const errorData = err?.response?.data || {}
-          const errorMsg = errorData.msg || errorData.message || err?.message || 'Unprocessable Entity'
-          const errorDetails = errorData.errors || errorData.details || ''
-          mensagemErroCondominios = `HTTP ${err.response.status}: ${errorMsg}${errorDetails ? `\n\nDetalhes: ${JSON.stringify(errorDetails)}` : ''}`
+          mensagemErroCondominios = `HTTP ${err.response.status}: ${err?.response?.data?.msg || err?.response?.data?.message || err?.message || 'Unprocessable Entity'}`
         } else if (err?.response?.status) {
           mensagemErroCondominios = `HTTP ${err.response.status}: ${err?.response?.data?.msg || err?.response?.data?.message || err?.message || 'Erro desconhecido'}`
         }

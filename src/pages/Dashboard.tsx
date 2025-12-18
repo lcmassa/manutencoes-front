@@ -1,6 +1,5 @@
 import React from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { LinkAcessoDireto } from '../components/LinkAcessoDireto'
 import { 
   FileText, 
   Wrench, 
@@ -83,16 +82,6 @@ export function Dashboard() {
             Usuário: {user.name || user.email}
           </p>
         )}
-      </div>
-
-      {/* Link de Acesso Direto */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Link de Acesso Direto</h2>
-        <p className="text-sm text-gray-600 mb-4">
-          Compartilhe este link com qualquer pessoa autorizada para acesso direto a esta página. 
-          O link não contém informações sensíveis e funciona para qualquer usuário com permissão de acesso.
-        </p>
-        <LinkAcessoDireto />
       </div>
 
       {/* Estatísticas */}
