@@ -14,6 +14,12 @@ type Assembleia = {
 }
 
 export function Assembleias() {
+  // #region agent log
+  useEffect(() => {
+    fetch('http://127.0.0.1:7242/ingest/f0428a8a-3429-4d2c-96c5-eee3af77a73c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Assembleias.tsx:16',message:'Componente Assembleias montado',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  }, []);
+  // #endregion
+  
   const { token, companyId } = useAuth()
   const [data, setData] = useState<Assembleia[]>([])
   const [loading, setLoading] = useState(true)
@@ -692,8 +698,14 @@ export function Assembleias() {
     }
   }, [filteredData, currentPage, pageSize])
 
+  // #region agent log
+  useEffect(() => {
+    fetch('http://127.0.0.1:7242/ingest/f0428a8a-3429-4d2c-96c5-eee3af77a73c',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Assembleias.tsx:701',message:'Assembleias renderizando JSX',data:{loading,erro,dataCount:data.length,hasContent:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  }, [loading, erro, data.length]);
+  // #endregion
+  
   return (
-    <div>
+    <div style={{ minHeight: '200px', backgroundColor: 'white', padding: '1rem' }}>
       <TokenInfo token={token} />
 
       {erro && (

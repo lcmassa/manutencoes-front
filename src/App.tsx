@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { createHashRouter, RouterProvider } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { Shell } from './Shell'
@@ -81,7 +81,24 @@ function AppContent() {
   }
 
   // Se tem token, renderiza o app completo
-  // NÃO fazer redirecionamento - apenas render condicional
+  // Garantir que se não houver hash, vá para Dashboard
+  useEffect(() => {
+    if (token && !loading) {
+      // Aguardar um pouco para garantir que o router está pronto
+      const timer = setTimeout(() => {
+        const currentHash = window.location.hash
+        console.log('[AppContent] Verificando hash inicial:', currentHash)
+        // Se não houver hash ou for apenas #, ir para Dashboard
+        if (!currentHash || currentHash === '#' || currentHash === '#/') {
+          console.log('[AppContent] Redirecionando para Dashboard')
+          window.location.hash = '#/'
+        }
+      }, 300) // Aguardar 300ms para garantir que o router está pronto
+      
+      return () => clearTimeout(timer)
+    }
+  }, [token, loading])
+
   return <Shell />
 }
 

@@ -2,8 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* shadcn primitives can extend here if necessário */
-
 body {
   margin: 0;
   padding: 0;
@@ -15,3 +13,5 @@ body {
   min-height: 100vh;
 }
 
+/* Estilos para o novo menu customizado - não sobrescrever */
+/* O menu customizado usa classes Tailwind e não precisa de CSS adicional */

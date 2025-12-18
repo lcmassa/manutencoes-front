@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../lib/api'
 import * as ManutencoesDB from '../lib/manutencoes-db'
+import { TokenInfo } from '../components/TokenInfo'
 import { 
   Plus, 
   Edit2, 
@@ -24,8 +25,7 @@ import {
   Search,
   Settings,
   List,
-  Database,
-  Cloud
+  Database
 } from 'lucide-react'
 
 // =====================================================
@@ -285,48 +285,80 @@ export function Manutencoes() {
   // =====================================================
   
   const carregarCondominios = useCallback(async () => {
-    if (!token || !companyId) return []
+    if (!token || !companyId) {
+      console.warn('[Manutencoes] ⚠️ Token ou companyId não disponível:', { token: !!token, companyId })
+      return []
+    }
     
     try {
-      console.log('[Manutencoes] Buscando condomínios...')
+      console.log('[Manutencoes] Buscando condomínios...', { token: token.substring(0, 20) + '...', companyId })
       const todosCondominios: Condominio[] = []
       let pagina = 1
       let temMais = true
       
       while (temMais) {
         const url = `/api/condominios/superlogica/condominios/get?id=-1&somenteCondominiosAtivos=1&ignorarCondominioModelo=1&itensPorPagina=100&pagina=${pagina}`
+        console.log(`[Manutencoes] Buscando página ${pagina}...`)
+        
         const response = await api.get<any>(url)
         const data = response.data
+        console.log(`[Manutencoes] Resposta da API (página ${pagina}):`, {
+          isArray: Array.isArray(data),
+          hasData: !!data?.data,
+          hasCondominios: !!data?.condominios,
+          dataKeys: data && typeof data === 'object' ? Object.keys(data) : 'not object'
+        })
+        
         const lista = Array.isArray(data) ? data : data?.data || data?.condominios || []
+        console.log(`[Manutencoes] Lista processada (página ${pagina}):`, lista.length, 'itens')
         
         if (lista.length === 0) {
+          console.log(`[Manutencoes] Nenhum item na página ${pagina}, parando busca`)
           temMais = false
           break
         }
         
+        let adicionados = 0
         lista.forEach((c: any) => {
           const nome = c.st_fantasia_cond || c.st_nome_cond || c.nomeFantasia || c.nome || ''
           const id = c.id_condominio_cond || c.id || ''
           if (nome && id) {
-            todosCondominios.push({ id, nome })
+            todosCondominios.push({ id: String(id), nome: String(nome) })
+            adicionados++
+          } else {
+            console.warn('[Manutencoes] Condomínio ignorado (sem nome ou id):', c)
           }
         })
+        console.log(`[Manutencoes] Página ${pagina}: ${adicionados} condomínios adicionados de ${lista.length} itens`)
         
         if (lista.length < 100) {
           temMais = false
         } else {
           pagina++
-          if (pagina > 20) temMais = false
+          if (pagina > 20) {
+            console.warn('[Manutencoes] Limite de 20 páginas atingido')
+            temMais = false
+          }
         }
       }
       
       // Ordenar por nome
       todosCondominios.sort((a, b) => a.nome.localeCompare(b.nome))
       
-      console.log(`[Manutencoes] ✅ ${todosCondominios.length} condomínios encontrados`)
+      console.log(`[Manutencoes] ✅ Total: ${todosCondominios.length} condomínios encontrados`)
+      if (todosCondominios.length > 0) {
+        console.log('[Manutencoes] Primeiros 5 condomínios:', todosCondominios.slice(0, 5))
+      }
+      
       return todosCondominios
     } catch (err: any) {
-      console.error('[Manutencoes] Erro ao carregar condomínios:', err)
+      console.error('[Manutencoes] ❌ Erro ao carregar condomínios:', err)
+      console.error('[Manutencoes] Detalhes do erro:', {
+        message: err?.message,
+        status: err?.response?.status,
+        statusText: err?.response?.statusText,
+        data: err?.response?.data
+      })
       throw err
     }
   }, [token, companyId])
@@ -396,25 +428,59 @@ export function Manutencoes() {
       setError(null)
       
       try {
-        // Tentar carregar do banco primeiro (silenciosamente)
-        let dadosDoBanco: { tipos: any[], itens: any[], excluidos: string[] } | null = null
+        // Carregar condomínios da API primeiro
+        console.log('[Manutencoes] Iniciando carregamento de condomínios...', { token: !!token, companyId })
+        let condominiosList: Condominio[] = []
+        
         try {
-          dadosDoBanco = await ManutencoesDB.buscarTodosDados(companyId)
-          if (dadosDoBanco && (dadosDoBanco.tipos.length > 0 || dadosDoBanco.itens.length > 0)) {
-            console.log('[Manutencoes] Dados encontrados no banco, usando-os')
+          condominiosList = await carregarCondominios()
+          if (cancelled) return
+          
+          console.log('[Manutencoes] Condomínios carregados:', condominiosList.length)
+          if (condominiosList.length === 0) {
+            console.warn('[Manutencoes] ⚠️ Nenhum condomínio foi carregado!')
+            // Não setar erro aqui, apenas logar - pode ser que realmente não haja condomínios
+          }
+        } catch (condominiosErr: any) {
+          console.error('[Manutencoes] ❌ Erro ao carregar condomínios:', condominiosErr)
+          const status = condominiosErr?.response?.status
+          
+          if (status === 401) {
+            setError('Erro de autenticação. O token pode ter expirado. Verifique o token JWT acima.')
+          } else if (status === 403) {
+            setError('Acesso negado. Você não tem permissão para acessar os condomínios.')
           } else {
-            dadosDoBanco = null
-            console.log('[Manutencoes] Nenhum dado no banco, usando localStorage')
+            setError(`Erro ao carregar condomínios: ${condominiosErr?.message || 'Erro desconhecido'}. Verifique o console para mais detalhes.`)
+          }
+          
+          // Continuar mesmo com erro - não bloquear a UI
+          condominiosList = []
+        }
+        
+        setCondominios(condominiosList)
+        
+        // Verificar se já existem dados no banco
+        let dadosDoBanco: { tipos: any[], itens: any[], excluidos: string[] } | null = null
+        let dadosExistemNoBanco = false
+        
+        try {
+          dadosExistemNoBanco = await ManutencoesDB.verificarDadosExistentes(companyId)
+          if (dadosExistemNoBanco) {
+            dadosDoBanco = await ManutencoesDB.buscarTodosDados(companyId)
+            console.log('[Manutencoes] ✅ Dados encontrados no banco, usando-os')
+          } else {
+            console.log('[Manutencoes] Nenhum dado no banco, será criado na primeira vez')
           }
         } catch (err: any) {
           // Ignorar erros 422, 404, 501 - endpoints podem não existir ainda
           const status = err?.response?.status
           if (status === 404 || status === 422 || status === 501) {
-            console.log('[Manutencoes] Endpoints de banco não disponíveis, usando apenas localStorage')
+            console.log('[Manutencoes] Endpoints de banco não disponíveis, usando localStorage')
           } else {
-            console.log('[Manutencoes] Erro ao buscar do banco, usando localStorage:', err)
+            console.log('[Manutencoes] Erro ao verificar banco, usando localStorage:', err)
           }
           dadosDoBanco = null
+          dadosExistemNoBanco = false
         }
         
         // Carregar tipos customizados (do banco ou localStorage)
@@ -436,17 +502,13 @@ export function Manutencoes() {
           salvarTiposCustomizados(tiposCustom)
         }
         
-        // Carregar condomínios da API
-        const condominiosList = await carregarCondominios()
-        if (cancelled) return
-        setCondominios(condominiosList)
-        
         // Combinar tipos padrão + customizados
         const todosTiposDisponiveis = [...TIPOS_ITENS_MANUTENCAO, ...tiposCustom]
         
         // Carregar itens (do banco ou localStorage)
         let itensLocal: ItemManutencao[]
         if (dadosDoBanco && dadosDoBanco.itens.length > 0) {
+          // Carregar do banco
           itensLocal = dadosDoBanco.itens.map(i => ({
             id: i.id,
             idCondominio: i.id_condominio,
@@ -471,18 +533,86 @@ export function Manutencoes() {
             dataCriacao: i.data_criacao || new Date().toISOString(),
             dataAtualizacao: i.data_atualizacao || new Date().toISOString(),
           }))
+          
+          // Atualizar lista de excluídos do banco
+          if (dadosDoBanco.excluidos.length > 0) {
+            const excluidosSet = new Set(dadosDoBanco.excluidos)
+            salvarItensExcluidos(excluidosSet)
+          }
+          
+          // Verificar se há novos condomínios e criar itens padrão para eles
+          itensLocal = inicializarItensPadrao(condominiosList, itensLocal, todosTiposDisponiveis)
         } else {
+          // Primeira vez: criar todos os itens padrão para todos os condomínios
+          console.log('[Manutencoes] Primeira execução: criando itens padrão para todos os condomínios')
           itensLocal = carregarDados()
+          itensLocal = inicializarItensPadrao(condominiosList, itensLocal, todosTiposDisponiveis)
+          
+          // Salvar no localStorage primeiro
+          salvarDados(itensLocal)
+          
+          // Sincronizar com banco (em background, não bloquear UI)
+          if (companyId) {
+            // Função auxiliar para sincronização inicial
+            const sincronizarInicial = async () => {
+              try {
+                console.log('[Manutencoes] Sincronizando dados iniciais com banco...')
+                
+                // Converter tipos para formato do banco
+                const tiposDB: ManutencoesDB.TipoItemManutencaoDB[] = tiposCustom.map(t => ({
+                  id: t.id,
+                  nome: t.nome,
+                  categoria: t.categoria,
+                  periodicidade_meses: t.periodicidadeMeses,
+                  obrigatorio: t.obrigatorio,
+                  descricao_padrao: t.descricaoPadrao,
+                  id_empresa: companyId,
+                }))
+                
+                // Converter itens para formato do banco
+                const itensDB: ManutencoesDB.ItemManutencaoDB[] = itensLocal.map(i => ({
+                  id: i.id,
+                  id_condominio: i.idCondominio,
+                  nome_condominio: i.nomeCondominio,
+                  tipo_item_id: i.tipoItemId,
+                  tipo_item_nome: i.tipoItemNome,
+                  categoria: i.categoria,
+                  data_ultima_manutencao: i.dataUltimaManutencao,
+                  data_proxima_manutencao: i.dataProximaManutencao,
+                  data_vencimento_garantia: i.dataVencimentoGarantia,
+                  periodicidade_meses: i.periodicidadeMeses,
+                  fornecedor: i.fornecedor,
+                  telefone_contato: i.telefoneContato,
+                  email_contato: i.emailContato,
+                  numero_contrato: i.numeroContrato,
+                  valor_contrato: i.valorContrato,
+                  laudo_tecnico: i.laudoTecnico,
+                  certificado: i.certificado,
+                  observacoes: i.observacoes,
+                  status: i.status,
+                  prioridade: i.prioridade,
+                  id_empresa: companyId,
+                  data_criacao: i.dataCriacao,
+                  data_atualizacao: i.dataAtualizacao,
+                }))
+                
+                // Converter excluídos para formato do banco
+                const excluidos = Array.from(carregarItensExcluidos())
+                
+                // Sincronizar todos os dados
+                await ManutencoesDB.sincronizarTodosDados(tiposDB, itensDB, excluidos, companyId)
+                
+                setUltimaSincronizacao(new Date())
+                console.log('[Manutencoes] ✅ Sincronização inicial concluída com sucesso')
+              } catch (err: any) {
+                console.error('[Manutencoes] Erro ao sincronizar dados iniciais:', err)
+                // Não bloquear a UI em caso de erro na sincronização inicial
+              }
+            }
+            
+            sincronizarInicial()
+          }
         }
-        
-        // Atualizar lista de excluídos (do banco ou localStorage)
-        if (dadosDoBanco && dadosDoBanco.excluidos.length > 0) {
-          const excluidosSet = new Set(dadosDoBanco.excluidos)
-          salvarItensExcluidos(excluidosSet)
-        }
-        
-        // Inicializar itens padrão para novos condomínios
-        itensLocal = inicializarItensPadrao(condominiosList, itensLocal, todosTiposDisponiveis)
         
         // Recalcular status de cada item
         itensLocal = itensLocal.map(item => ({
@@ -495,23 +625,28 @@ export function Manutencoes() {
       } catch (err: any) {
         if (cancelled) return
         
-        // Ignorar erros 422, 404, 501 - endpoints de banco podem não existir ainda
-        const status = err?.response?.status
-        if (status === 404 || status === 422 || status === 501) {
-          console.log('[Manutencoes] Endpoints de banco não disponíveis, continuando com localStorage')
-          // Limpar qualquer erro anterior e não setar novo erro
-          setError(null)
-          // Continuar com localStorage normalmente
-          return
-        }
+        console.error('[Manutencoes] Erro ao carregar dados:', err)
         
-        console.error('[Manutencoes] Erro ao carregar:', err)
-        // Só setar erro na UI para erros reais (não relacionados ao banco)
-        if (err?.response?.status !== 422 && err?.response?.status !== 404 && err?.response?.status !== 501) {
-          setError(err?.message || 'Erro ao carregar dados')
+        // Se não há condomínios carregados, isso é um problema crítico
+        if (condominios.length === 0) {
+          // Não setar erro aqui novamente se já foi setado no bloco de carregar condomínios
+          if (!error) {
+            const errorMsg = err?.response?.status === 401 
+              ? 'Erro de autenticação. Verifique o token JWT acima.'
+              : err?.message || 'Erro ao carregar dados. Verifique sua conexão e permissões.'
+            setError(errorMsg)
+          }
         } else {
-          // Limpar erro se for relacionado a endpoints não disponíveis
-          setError(null)
+          // Se há condomínios mas erro no banco, apenas logar
+          const status = err?.response?.status
+          if (status === 404 || status === 422 || status === 501) {
+            console.log('[Manutencoes] Endpoints de banco não disponíveis, continuando com localStorage')
+            setError(null)
+          } else if (status !== 401) {
+            // Erros não críticos não devem bloquear a UI
+            console.warn('[Manutencoes] Erro não crítico:', err)
+            setError(null)
+          }
         }
       } finally {
         if (!cancelled) {
@@ -675,7 +810,7 @@ export function Manutencoes() {
     
     // Sincronizar com banco (em background, não bloquear UI)
     if (companyId) {
-      sincronizarComBanco().catch(err => {
+      sincronizarComBanco(itens, novosTipos).catch(err => {
         console.error('[Manutencoes] Erro ao sincronizar após salvar tipo:', err)
       })
     }
@@ -694,6 +829,13 @@ export function Manutencoes() {
     const novosTipos = tiposCustomizados.filter(t => t.id !== id)
     setTiposCustomizados(novosTipos)
     salvarTiposCustomizados(novosTipos)
+    
+    // Sincronizar com banco (em background, não bloquear UI)
+    if (companyId) {
+      sincronizarComBanco(itens, novosTipos).catch(err => {
+        console.error('[Manutencoes] Erro ao sincronizar após excluir tipo:', err)
+      })
+    }
   }
   
   const abrirModalEditar = (item: ItemManutencao) => {
@@ -739,7 +881,7 @@ export function Manutencoes() {
     
     // Sincronizar com banco (em background, não bloquear UI)
     if (companyId) {
-      sincronizarComBanco().catch(err => {
+      sincronizarComBanco(novosItens, tiposCustomizados).catch(err => {
         console.error('[Manutencoes] Erro ao sincronizar após salvar:', err)
       })
     }
@@ -764,6 +906,9 @@ export function Manutencoes() {
       sincronizarExclusaoComBanco(item.idCondominio, item.tipoItemId).catch(err => {
         console.error('[Manutencoes] Erro ao sincronizar exclusão:', err)
       })
+      sincronizarComBanco(novosItens, tiposCustomizados).catch(err => {
+        console.error('[Manutencoes] Erro ao sincronizar após excluir:', err)
+      })
     }
   }
   
@@ -780,7 +925,7 @@ export function Manutencoes() {
     }
   }
   
-  const sincronizarComBanco = useCallback(async () => {
+  const sincronizarComBanco = useCallback(async (itensParaSincronizar?: ItemManutencao[], tiposParaSincronizar?: TipoItemManutencao[]) => {
     if (!companyId || sincronizando) return
     
     setSincronizando(true)
@@ -789,18 +934,22 @@ export function Manutencoes() {
     try {
       console.log('[Manutencoes] Iniciando sincronização com banco...')
       
+      const itensAtuais = itensParaSincronizar || itens
+      const tiposAtuais = tiposParaSincronizar || tiposCustomizados
+      
       // Converter tipos para formato do banco
-      const tiposDB: ManutencoesDB.TipoItemManutencaoDB[] = tiposCustomizados.map(t => ({
+      const tiposDB: ManutencoesDB.TipoItemManutencaoDB[] = tiposAtuais.map(t => ({
         id: t.id,
         nome: t.nome,
         categoria: t.categoria,
         periodicidade_meses: t.periodicidadeMeses,
         obrigatorio: t.obrigatorio,
         descricao_padrao: t.descricaoPadrao,
+        id_empresa: companyId,
       }))
       
       // Converter itens para formato do banco
-      const itensDB: ManutencoesDB.ItemManutencaoDB[] = itens.map(i => ({
+      const itensDB: ManutencoesDB.ItemManutencaoDB[] = itensAtuais.map(i => ({
         id: i.id,
         id_condominio: i.idCondominio,
         nome_condominio: i.nomeCondominio,
@@ -822,6 +971,8 @@ export function Manutencoes() {
         status: i.status,
         prioridade: i.prioridade,
         id_empresa: companyId,
+        data_criacao: i.dataCriacao,
+        data_atualizacao: i.dataAtualizacao,
       }))
       
       // Converter excluídos para formato do banco
@@ -838,87 +989,7 @@ export function Manutencoes() {
     } finally {
       setSincronizando(false)
     }
-  }, [companyId, tiposCustomizados, itens, sincronizando])
-  
-  const carregarDoBanco = useCallback(async () => {
-    if (!companyId || loadingRef.current) return
-    
-    loadingRef.current = true
-    setLoading(true)
-    setError(null)
-    
-    try {
-      console.log('[Manutencoes] Carregando dados do banco...')
-      
-      const dados = await ManutencoesDB.buscarTodosDados(companyId)
-      
-      // Se houver dados no banco, usar eles
-      if (dados.tipos.length > 0 || dados.itens.length > 0) {
-        // Converter tipos do banco para formato local
-        const tiposLocal: TipoItemManutencao[] = dados.tipos.map(t => ({
-          id: t.id,
-          nome: t.nome,
-          categoria: t.categoria,
-          periodicidadeMeses: t.periodicidade_meses,
-          obrigatorio: t.obrigatorio,
-          descricaoPadrao: t.descricao_padrao,
-        }))
-        setTiposCustomizados(tiposLocal)
-        salvarTiposCustomizados(tiposLocal)
-        
-        // Converter itens do banco para formato local
-        const itensLocal: ItemManutencao[] = dados.itens.map(i => ({
-          id: i.id,
-          idCondominio: i.id_condominio,
-          nomeCondominio: i.nome_condominio,
-          tipoItemId: i.tipo_item_id,
-          tipoItemNome: i.tipo_item_nome,
-          categoria: i.categoria,
-          dataUltimaManutencao: i.data_ultima_manutencao,
-          dataProximaManutencao: i.data_proxima_manutencao,
-          dataVencimentoGarantia: i.data_vencimento_garantia,
-          periodicidadeMeses: i.periodicidade_meses,
-          fornecedor: i.fornecedor,
-          telefoneContato: i.telefone_contato,
-          emailContato: i.email_contato,
-          numeroContrato: i.numero_contrato,
-          valorContrato: i.valor_contrato,
-          laudoTecnico: i.laudo_tecnico,
-          certificado: i.certificado,
-          observacoes: i.observacoes,
-          status: i.status,
-          prioridade: i.prioridade,
-          dataCriacao: i.data_criacao || new Date().toISOString(),
-          dataAtualizacao: i.data_atualizacao || new Date().toISOString(),
-        }))
-        
-        // Recalcular status
-        const itensComStatus = itensLocal.map(item => ({
-          ...item,
-          status: calcularStatus(item)
-        }))
-        
-        setItens(itensComStatus)
-        salvarDados(itensComStatus)
-        
-        // Atualizar lista de excluídos
-        const excluidosSet = new Set(dados.excluidos)
-        salvarItensExcluidos(excluidosSet)
-        
-        console.log('[Manutencoes] ✅ Dados carregados do banco')
-      } else {
-        // Se não houver dados no banco, carregar do localStorage normalmente
-        console.log('[Manutencoes] Nenhum dado no banco, usando localStorage')
-      }
-    } catch (error: any) {
-      console.error('[Manutencoes] Erro ao carregar do banco:', error)
-      // Em caso de erro, continuar com localStorage (fallback)
-      console.log('[Manutencoes] Usando localStorage como fallback')
-    } finally {
-      setLoading(false)
-      loadingRef.current = false
-    }
-  }, [companyId])
+  }, [companyId, itens, tiposCustomizados, sincronizando])
 
   // =====================================================
   // RENDERIZAÇÃO DE STATUS
@@ -967,12 +1038,36 @@ export function Manutencoes() {
     error.includes('Not Implemented')
   )
   
-  if (error && !isErrorFromUnavailableEndpoint) {
+  if (error && !isErrorFromUnavailableEndpoint && condominios.length === 0) {
     return (
       <div className="p-6">
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-red-800 font-medium">Erro ao carregar</p>
+          <p className="text-red-800 font-medium">Erro ao carregar condomínios</p>
           <p className="text-red-600 text-sm mt-1">{error}</p>
+          <button
+            onClick={async () => {
+              setLoading(true)
+              setError(null)
+              try {
+                const lista = await carregarCondominios()
+                setCondominios(lista)
+                if (lista.length > 0) {
+                  // Recarregar página para inicializar dados
+                  window.location.reload()
+                } else {
+                  setError('Nenhum condomínio encontrado. Verifique suas permissões.')
+                }
+              } catch (err: any) {
+                console.error('[Manutencoes] Erro ao recarregar:', err)
+                setError(err?.message || 'Erro ao recarregar condomínios')
+              } finally {
+                setLoading(false)
+              }
+            }}
+            className="mt-3 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+          >
+            🔄 Tentar novamente
+          </button>
         </div>
       </div>
     )
@@ -984,6 +1079,9 @@ export function Manutencoes() {
   
   return (
     <div className="p-4 space-y-4">
+      {/* Informações do Token */}
+      <TokenInfo token={token} />
+      
       {/* Header */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
         <div className="flex items-center justify-between mb-4">
@@ -995,6 +1093,41 @@ export function Manutencoes() {
             <p className="text-sm text-gray-600">
               Gestão completa de manutenções e equipamentos dos condomínios
             </p>
+            {condominios.length > 0 && (
+              <p className="text-xs text-gray-500 mt-1">
+                {condominios.length} condomínio{condominios.length !== 1 ? 's' : ''} carregado{condominios.length !== 1 ? 's' : ''}
+              </p>
+            )}
+            {condominios.length === 0 && !loading && (
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-xs text-yellow-600">
+                  ⚠️ Nenhum condomínio carregado. Verifique se você tem permissão para acessar os condomínios.
+                </p>
+                <button
+                  onClick={async () => {
+                    setLoading(true)
+                    setError(null)
+                    try {
+                      const lista = await carregarCondominios()
+                      setCondominios(lista)
+                      if (lista.length > 0) {
+                        // Recarregar dados completos
+                        window.location.reload()
+                      }
+                    } catch (err: any) {
+                      console.error('[Manutencoes] Erro ao recarregar condomínios:', err)
+                      setError(err?.message || 'Erro ao recarregar condomínios')
+                    } finally {
+                      setLoading(false)
+                    }
+                  }}
+                  className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200"
+                  title="Tentar recarregar condomínios"
+                >
+                  🔄 Tentar novamente
+                </button>
+              </div>
+            )}
             {ultimaSincronizacao && (
               <p className="text-xs text-gray-500 mt-1">
                 Última sincronização: {ultimaSincronizacao.toLocaleString('pt-BR')}
@@ -1003,7 +1136,7 @@ export function Manutencoes() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={sincronizarComBanco}
+              onClick={() => sincronizarComBanco()}
               disabled={sincronizando || !companyId}
               className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
                 sincronizando
@@ -1110,8 +1243,11 @@ export function Manutencoes() {
             value={filtroCondominio}
             onChange={e => setFiltroCondominio(e.target.value)}
             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={condominios.length === 0}
           >
-            <option value="">Todos os condomínios</option>
+            <option value="">
+              {condominios.length === 0 ? 'Carregando condomínios...' : 'Todos os condomínios'}
+            </option>
             {condominios.map(c => (
               <option key={c.id} value={c.id}>{c.nome}</option>
             ))}
@@ -1156,14 +1292,14 @@ export function Manutencoes() {
                 return (
                   <div key={grupo.idCondominio} className="divide-y divide-gray-100">
                     {/* Cabeçalho do Condomínio */}
-                    <div className={`bg-gradient-to-r from-blue-50 to-blue-100 border-l-4 border-blue-600 px-4 py-3 sticky top-0 z-10 ${
+                    <div className={`bg-gradient-to-r from-blue-50 to-blue-100 border-l-4 border-blue-600 px-3 py-1 sticky top-0 z-10 ${
                       vencidos > 0 ? 'from-red-50 to-red-100 border-red-600' : 
                       proximos > 0 ? 'from-yellow-50 to-yellow-100 border-yellow-600' : ''
                     }`}>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <Building2 className="w-5 h-5 text-blue-700" />
-                          <h3 className="text-base font-bold text-gray-900">{grupo.nomeCondominio}</h3>
+                          <Building2 className="w-3.5 h-3.5 text-blue-700" />
+                          <h3 className="text-xs font-bold text-gray-900">{grupo.nomeCondominio}</h3>
                           <span className="text-xs text-gray-600 font-medium">
                             ({grupo.itens.length} {grupo.itens.length === 1 ? 'item' : 'itens'})
                           </span>
@@ -1188,21 +1324,21 @@ export function Manutencoes() {
                       <table className="w-full text-sm">
                         <thead className="bg-gray-50 border-b border-gray-200">
                           <tr>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Item</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Categoria</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Última Manut.</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Próxima</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Garantia</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Fornecedor</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Status</th>
-                            <th className="px-3 py-2 text-center font-semibold text-gray-700">Ações</th>
+                            <th className="px-2 py-0.5 text-left font-semibold text-gray-700 text-xs">Item</th>
+                            <th className="px-2 py-0.5 text-left font-semibold text-gray-700 text-xs">Categoria</th>
+                            <th className="px-2 py-0.5 text-left font-semibold text-gray-700 text-xs">Última Manut.</th>
+                            <th className="px-2 py-0.5 text-left font-semibold text-gray-700 text-xs">Próxima</th>
+                            <th className="px-2 py-0.5 text-left font-semibold text-gray-700 text-xs">Garantia</th>
+                            <th className="px-2 py-0.5 text-left font-semibold text-gray-700 text-xs">Fornecedor</th>
+                            <th className="px-2 py-0.5 text-left font-semibold text-gray-700 text-xs">Status</th>
+                            <th className="px-2 py-0.5 text-center font-semibold text-gray-700 text-xs">Ações</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                           {grupo.itens.map(item => (
                             <tr key={item.id} className={`hover:bg-gray-50 ${item.status === 'vencido' ? 'bg-red-50' : ''}`}>
-                              <td className="px-3 py-2 font-medium text-gray-900">{item.tipoItemNome}</td>
-                              <td className="px-3 py-2">
+                              <td className="px-2 py-0.5 font-medium text-gray-900 text-xs">{item.tipoItemNome}</td>
+                              <td className="px-2 py-0.5">
                                 <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                                   item.categoria === 'equipamento' ? 'bg-blue-100 text-blue-800' :
                                   item.categoria === 'estrutura' ? 'bg-purple-100 text-purple-800' :
@@ -1211,14 +1347,14 @@ export function Manutencoes() {
                                   {item.categoria === 'equipamento' ? 'Equip.' : item.categoria === 'estrutura' ? 'Estrut.' : 'Admin.'}
                                 </span>
                               </td>
-                              <td className="px-3 py-2 text-gray-600">{formatarData(item.dataUltimaManutencao)}</td>
-                              <td className="px-3 py-2 text-gray-600">{formatarData(item.dataProximaManutencao)}</td>
-                              <td className="px-3 py-2 text-gray-600">{formatarData(item.dataVencimentoGarantia)}</td>
-                              <td className="px-3 py-2 text-gray-600 truncate max-w-[120px]" title={item.fornecedor}>
+                              <td className="px-2 py-0.5 text-gray-600 text-xs">{formatarData(item.dataUltimaManutencao)}</td>
+                              <td className="px-2 py-0.5 text-gray-600 text-xs">{formatarData(item.dataProximaManutencao)}</td>
+                              <td className="px-2 py-0.5 text-gray-600 text-xs">{formatarData(item.dataVencimentoGarantia)}</td>
+                              <td className="px-2 py-0.5 text-gray-600 truncate max-w-[120px] text-xs" title={item.fornecedor}>
                                 {item.fornecedor || '-'}
                               </td>
-                              <td className="px-3 py-2">{renderStatusBadge(item.status)}</td>
-                              <td className="px-3 py-2">
+                              <td className="px-2 py-0.5">{renderStatusBadge(item.status)}</td>
+                              <td className="px-2 py-0.5">
                                 <div className="flex items-center justify-center gap-1">
                                   <button
                                     onClick={() => abrirModalEditar(item)}
@@ -1568,17 +1704,17 @@ export function Manutencoes() {
                       <table className="w-full text-sm">
                         <thead className="bg-gray-50">
                           <tr>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Nome</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Categoria</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Periodicidade</th>
-                            <th className="px-3 py-2 text-left font-semibold text-gray-700">Obrigatório</th>
+                            <th className="px-2 py-0.5 text-left font-semibold text-gray-700 text-xs">Nome</th>
+                            <th className="px-2 py-0.5 text-left font-semibold text-gray-700 text-xs">Categoria</th>
+                            <th className="px-2 py-0.5 text-left font-semibold text-gray-700 text-xs">Periodicidade</th>
+                            <th className="px-2 py-0.5 text-left font-semibold text-gray-700 text-xs">Obrigatório</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                           {TIPOS_ITENS_MANUTENCAO.map(tipo => (
                             <tr key={tipo.id} className="hover:bg-gray-50">
-                              <td className="px-3 py-2 text-gray-900">{tipo.nome}</td>
-                              <td className="px-3 py-2">
+                              <td className="px-2 py-0.5 text-gray-900 text-xs">{tipo.nome}</td>
+                              <td className="px-2 py-0.5">
                                 <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                                   tipo.categoria === 'equipamento' ? 'bg-blue-100 text-blue-800' :
                                   tipo.categoria === 'estrutura' ? 'bg-purple-100 text-purple-800' :
@@ -1587,8 +1723,8 @@ export function Manutencoes() {
                                   {tipo.categoria}
                                 </span>
                               </td>
-                              <td className="px-3 py-2 text-gray-600">{tipo.periodicidadeMeses} meses</td>
-                              <td className="px-3 py-2">
+                              <td className="px-2 py-0.5 text-gray-600 text-xs">{tipo.periodicidadeMeses} meses</td>
+                              <td className="px-2 py-0.5">
                                 {tipo.obrigatorio ? (
                                   <span className="text-green-600 font-medium">Sim</span>
                                 ) : (
@@ -1615,18 +1751,18 @@ export function Manutencoes() {
                         <table className="w-full text-sm">
                           <thead className="bg-gray-50">
                             <tr>
-                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Nome</th>
-                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Categoria</th>
-                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Periodicidade</th>
-                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Obrigatório</th>
-                              <th className="px-3 py-2 text-center font-semibold text-gray-700">Ações</th>
+                              <th className="px-2 py-0.5 text-left font-semibold text-gray-700 text-xs">Nome</th>
+                              <th className="px-2 py-0.5 text-left font-semibold text-gray-700 text-xs">Categoria</th>
+                              <th className="px-2 py-0.5 text-left font-semibold text-gray-700 text-xs">Periodicidade</th>
+                              <th className="px-2 py-0.5 text-left font-semibold text-gray-700 text-xs">Obrigatório</th>
+                              <th className="px-2 py-0.5 text-center font-semibold text-gray-700 text-xs">Ações</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100">
                             {tiposCustomizados.map(tipo => (
                               <tr key={tipo.id} className="hover:bg-gray-50">
-                                <td className="px-3 py-2 text-gray-900">{tipo.nome}</td>
-                                <td className="px-3 py-2">
+                                <td className="px-2 py-0.5 text-gray-900 text-xs">{tipo.nome}</td>
+                                <td className="px-2 py-0.5">
                                   <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                                     tipo.categoria === 'equipamento' ? 'bg-blue-100 text-blue-800' :
                                     tipo.categoria === 'estrutura' ? 'bg-purple-100 text-purple-800' :
@@ -1635,15 +1771,15 @@ export function Manutencoes() {
                                     {tipo.categoria}
                                   </span>
                                 </td>
-                                <td className="px-3 py-2 text-gray-600">{tipo.periodicidadeMeses} meses</td>
-                                <td className="px-3 py-2">
+                                <td className="px-2 py-0.5 text-gray-600 text-xs">{tipo.periodicidadeMeses} meses</td>
+                                <td className="px-2 py-0.5">
                                   {tipo.obrigatorio ? (
-                                    <span className="text-green-600 font-medium">Sim</span>
+                                    <span className="text-green-600 font-medium text-xs">Sim</span>
                                   ) : (
-                                    <span className="text-gray-400">Não</span>
+                                    <span className="text-gray-400 text-xs">Não</span>
                                   )}
                                 </td>
-                                <td className="px-3 py-2">
+                                <td className="px-2 py-0.5">
                                   <div className="flex items-center justify-center gap-1">
                                     <button
                                       onClick={() => abrirModalEditarTipo(tipo)}
